@@ -1,0 +1,68 @@
+{
+  "remote": {
+    "host": "192.168.1.100",
+    "credentials_dir": "~/.local/state/channelpilot",
+    "connect_timeout": 15,
+    "reconnect_delay": 3,
+    "command_delay": 0.35,
+    "wake_delay": 3
+  },
+  "channels_file": "channels.json",
+  "input": {
+    "device": "/dev/input/by-id/REPLACE_WITH_NUMPAD-event-kbd",
+    "grab": false,
+    "debounce": 0.15,
+    "reconnect_delay": 2,
+    "key_overrides": {}
+  },
+  "operation_timeout": 120,
+  "retry_limit": 1,
+  "standby_on_failure": false,
+  "default_channel": "rts1",
+  "log_level": "INFO",
+  "apps": {
+    "move": {
+      "package": "com.mtssi.supernovabih",
+      "calibrated": false,
+      "launch_link": null,
+      "launch_steps": [],
+      "home_delay": 1,
+      "startup_delay": 8,
+      "baseline": 1,
+      "channel_delay": 1,
+      "reset_steps": [
+        {"press": "BACK", "delay": 2},
+        {"press": "DPAD_LEFT", "times": 2, "delay": 2},
+        {"press": "DPAD_DOWN", "delay": 2},
+        {"press": "DPAD_CENTER", "times": 2, "delay": 2},
+        {"press": "BACK", "delay": 2},
+        {"checkpoint": "presumed RTS 1 baseline; verify during calibration"}
+      ],
+      "select_prefix": [{"press": "DPAD_LEFT", "delay": 2}],
+      "select_suffix": [
+        {"press": "DPAD_CENTER", "delay": 2},
+        {"press": "BACK", "delay": 2}
+      ]
+    },
+    "svt": {
+      "package": "se.svt.android.svtplay",
+      "calibrated": false,
+      "launch_link": null,
+      "launch_steps": [],
+      "home_delay": 1,
+      "startup_delay": 3,
+      "baseline": 1,
+      "channel_delay": 1,
+      "reset_steps": [
+        {"press": "DPAD_LEFT", "delay": 1},
+        {"press": "DPAD_CENTER", "delay": 5},
+        {"press": "DPAD_LEFT", "delay": 1},
+        {"press": "DPAD_DOWN", "times": 3, "delay": 1},
+        {"press": "DPAD_CENTER", "delay": 5},
+        {"checkpoint": "presumed SVT1 baseline; verify during calibration"}
+      ],
+      "select_prefix": [],
+      "select_suffix": [{"press": "DPAD_CENTER", "delay": 1}]
+    }
+  }
+}

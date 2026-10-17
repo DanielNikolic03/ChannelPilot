@@ -1,0 +1,29 @@
+[Unit]
+Description=ChannelPilot accessible Chromecast control
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=channelpilot
+Group=channelpilot
+SupplementaryGroups=channelpilot-input
+WorkingDirectory=/opt/channelpilot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/channelpilot/.venv/bin/python -m channelpilot --config /etc/channelpilot/config.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+StateDirectory=channelpilot
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

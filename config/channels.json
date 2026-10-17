@@ -1,0 +1,12 @@
+[
+  {"id": "svt1", "name": "SVT1", "app": "svt", "navigation_id": 1, "key": "1"},
+  {"id": "svt2", "name": "SVT2", "app": "svt", "navigation_id": 2, "key": "2"},
+  {"id": "kunskap", "name": "Kunskapskanalen", "app": "svt", "navigation_id": 4, "key": "3"},
+  {"id": "svt24", "name": "SVT24", "app": "svt", "navigation_id": 5, "key": "4"},
+  {"id": "bn-muzika", "name": "BN Muzika", "app": "move", "navigation_id": 6, "key": "5"},
+  {"id": "bn", "name": "BN", "app": "move", "navigation_id": 5, "key": "6"},
+  {"id": "happy", "name": "Happy", "app": "move", "navigation_id": 4, "key": "7"},
+  {"id": "prva", "name": "Prva", "app": "move", "navigation_id": 3, "key": "8"},
+  {"id": "pink", "name": "Pink", "app": "move", "navigation_id": 2, "key": "9"},
+  {"id": "rts1", "name": "RTS 1", "app": "move", "navigation_id": 1, "key": "0"}
+]

@@ -1,0 +1,4 @@
+# Replace VVVV and PPPP with this numpad's USB IDs before installing.
+# If identical devices exist, constrain serial/physical path as well.
+# This grants access to the matching numpad, not every system keyboard.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="VVVV", ATTRS{idProduct}=="PPPP", GROUP="channelpilot-input", MODE="0660"

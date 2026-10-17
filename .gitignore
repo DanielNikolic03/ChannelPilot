@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ChannelPilot local settings and authentication material
+config/config.json
+*.pem
+*.key
+*.crt
+credentials/
