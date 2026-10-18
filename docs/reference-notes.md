@@ -1,5 +1,8 @@
 # Reference study and design decisions
 
+**Current lifecycle update (2026-10-18):** The user replaced the original remote-only lifecycle requirement. App launch/force-stop now use ADB, while navigation/power/volume still use `androidtvremote2`. ADB can recover disabled Wireless debugging through a separately calibrated remote-key sequence and rediscover the connection port with `adb mdns services`. The notes below preserve the initial reference study; remote URL launching and HOME-only app close describe the superseded design. Normal same-app channel changes now reuse the last presumed position; fresh launch and baseline initialization are reserved for app switches, unknown/invalidated state, and recovery. See the README for current setup and configuration migration.
+
+
 The study preceded implementation. Original repository snapshot: `2d9fb2f94944504bbb1f3db67141acd22bb3858e`. Library dependency tested: `androidtvremote2` 0.3.2. Links below point to primary sources; current upstream behavior may evolve after this version.
 
 ## WayPi-TV
@@ -10,8 +13,8 @@ Read the original `src/main.cpp`, `channels.h`, `App.h`, `Apps/MOVE.cpp/.h`, `Ap
 - `App.h` only abstracts channel selection. `Waydroid::setChannel` owns app selection and instantiates the appropriate class. ChannelPilot moves selection into a registry and exposes open/reset/navigate/close, with no app-specific key commands in the controller.
 - MOVE launches `com.mtssi.supernovabih` twice, waits 8 seconds, then BACK, LEFT twice, DOWN, CENTER twice, BACK, with 2-second pauses. It presumes RTS 1. Relative changes open the list with LEFT, move vertically (1-second pauses), CENTER, BACK (2-second pauses). Internal positions are RTS 1=1, Pink=2, Prva=3, Happy=4, BN=5, BN Muzika=6. Its initial channel is assigned in the constructor; this is not observation.
 - SVT launches `se.svt.android.svtplay` twice, waits 3 seconds, then LEFT (1s), CENTER (5s), LEFT (1s), DOWN three times (1s), CENTER (5s), presuming SVT1. Relative changes use RIGHT/LEFT and CENTER. Its position mapping is SVT1=1, SVT2=2, Kunskapskanalen=4, SVT24=5, explicitly described as a placeholder.
-- Original app stop force-stops through ADB. The remote protocol provides no equivalent force-stop guarantee. ChannelPilot's close returns HOME and invalidates state. HOME may leave the app alive and preserve its UI; resetting a resumed UI is a calibration requirement.
-- The original global state is assigned after commands without validating their result. ChannelPilot records only presumed playback and resets from a calibrated baseline for every selection.
+- Original app stop force-stops through ADB. The remote protocol provides no equivalent force-stop guarantee. The initial implementation's close returned HOME and invalidated state; the current ADB implementation force-stops the package. HOME may leave the app alive and preserve its UI; resetting a resumed UI is a calibration requirement.
+- The original global state is assigned after commands without validating their result. ChannelPilot records only presumed playback, initializes a calibrated baseline on fresh launch/recovery, and then uses relative movement while continuity remains valid.
 
 Sources: [MOVE](https://github.com/DanielNikolic03/WayPi-TV/blob/2d9fb2f94944504bbb1f3db67141acd22bb3858e/src/Apps/MOVE.cpp), [SVT](https://github.com/DanielNikolic03/WayPi-TV/blob/2d9fb2f94944504bbb1f3db67141acd22bb3858e/src/Apps/SVT.cpp), [input/controller](https://github.com/DanielNikolic03/WayPi-TV/blob/2d9fb2f94944504bbb1f3db67141acd22bb3858e/src/main.cpp).
 

@@ -23,6 +23,62 @@ class RemoteConfig:
     reconnect_delay: float = 3.0
     command_delay: float = 0.35
     wake_delay: float = 3.0
+    power_timeout: float = 5.0
+
+
+@dataclass(frozen=True)
+class AdbConfig:
+    executable: str = "adb"
+    port: int | None = None
+    server_port: int = 5037
+    command_timeout: float = 10.0
+    discovery_timeout: float = 5.0
+    recovery_timeout: float = 60.0
+    poll_interval: float = 1.0
+    recovery_cooldown: float = 60.0
+    recovery_calibrated: bool = False
+    recovery_steps: list[dict[str, Any]] = field(default_factory=list)
+    shutdown_timeout: float = 8.0
+
+    @classmethod
+    def load(cls, data: dict[str, Any]) -> "AdbConfig":
+        from .navigation import validate_steps
+
+        executable = data.get("executable", "adb")
+        if not isinstance(executable, str) or not executable.strip():
+            raise ValueError("adb.executable must be an executable path/name")
+        port = data.get("port")
+        server = data.get("server_port", 5037)
+        for value in (port, server):
+            if value is not None and (type(value) is not int or not 1 <= value <= 65535):
+                raise ValueError("ADB ports must be integers from 1 to 65535")
+        if server is None:
+            raise ValueError("adb.server_port is required")
+        calibrated = data.get("recovery_calibrated", False)
+        if type(calibrated) is not bool:
+            raise ValueError("adb.recovery_calibrated must be boolean")
+        steps = data.get("recovery_steps", [])
+        validate_steps(steps)
+        if calibrated and not any("press" in step for step in steps):
+            raise ValueError("Calibrated ADB recovery needs actual remote-key steps")
+        return cls(
+            executable=executable,
+            port=port,
+            server_port=server,
+            recovery_calibrated=calibrated,
+            recovery_steps=steps,
+            **{
+                name: duration(data.get(name, default), "adb." + name)
+                for name, default in (
+                    ("command_timeout", 10),
+                    ("discovery_timeout", 5),
+                    ("recovery_timeout", 60),
+                    ("poll_interval", 1),
+                    ("recovery_cooldown", 60),
+                    ("shutdown_timeout", 8),
+                )
+            },
+        )
 
 
 @dataclass(frozen=True)
@@ -30,6 +86,7 @@ class Config:
     remote: RemoteConfig
     channels_file: Path
     apps: dict[str, dict[str, Any]]
+    adb: AdbConfig = field(default_factory=AdbConfig)
     device: str = "/dev/input/by-id/REPLACE_WITH_NUMPAD-event-kbd"
     grab: bool = False
     debounce: float = 0.15
@@ -38,7 +95,6 @@ class Config:
     retry_limit: int = 1
     standby_on_failure: bool = False
     log_level: str = "INFO"
-    default_channel: str | None = None
     input_key_overrides: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -66,6 +122,7 @@ class Config:
                     ("reconnect_delay", 3),
                     ("command_delay", 0.35),
                     ("wake_delay", 3),
+                    ("power_timeout", 5),
                 )
             },
         )
@@ -91,6 +148,7 @@ class Config:
             remote=remote,
             channels_file=relative(data.get("channels_file", "channels.json")),
             apps=data["apps"],
+            adb=AdbConfig.load(data.get("adb", {})),
             device=inp.get("device", cls.device),
             grab=inp.get("grab", False),
             debounce=duration(inp.get("debounce", 0.15), "debounce", zero=True),
@@ -99,6 +157,5 @@ class Config:
             retry_limit=retry,
             standby_on_failure=data.get("standby_on_failure", False),
             log_level=level,
-            default_channel=data.get("default_channel"),
             input_key_overrides=inp.get("key_overrides", {}),
         )

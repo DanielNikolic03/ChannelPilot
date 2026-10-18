@@ -34,7 +34,9 @@ async def read_line(prompt: str = "") -> str:
 async def run_terminal(controller: Controller) -> None:
     print("0-9: channel | +/-: next/previous | wake | standby | status")
     print("key DPAD_UP (or HOME, BACK, VOLUME_UP, VOLUME_DOWN, VOLUME_MUTE)")
-    print("launch <tested-deep-link> | invalidate | quit")
+    print(
+        "open <app-name-or-package> | close <app-name-or-package> | adb-connect | invalidate | quit"
+    )
     while True:
         try:
             line = (await read_line("> ")).strip()
@@ -43,13 +45,24 @@ async def run_terminal(controller: Controller) -> None:
         if line == "quit":
             return
         if line == "status":
+            controller.refresh_adb_state()
             print(json.dumps(asdict(controller.state), indent=2))
         elif line == "invalidate":
             controller.invalidate_navigation()
         elif line.startswith("key "):
             controller.submit("key", line[4:].upper())
-        elif line.startswith("launch "):
-            controller.submit("launch", line[7:])
+        elif line == "adb-connect":
+            controller.submit("adb-connect")
+        elif line.startswith(("open ", "launch ", "close ")):
+            action, value = line.split(maxsplit=1)
+            name = next(
+                (name for name, app in controller.apps.items() if value in {name, app.package}),
+                None,
+            )
+            if name is None:
+                _LOG.error("Unknown app; use a configured app name or package ID")
+            else:
+                controller.submit("close" if action == "close" else "open", name)
         elif line in {*map(str, range(10)), "+", "-", "wake", "standby"}:
             controller.handle_input({"+": "next", "-": "previous"}.get(line, line))
         elif line:

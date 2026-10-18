@@ -34,13 +34,11 @@ def wrapper(tmp_path, sdk, **kwargs):
     )
 
 
-async def test_sdk_key_launch_volume_and_explicit_power(tmp_path, sdk):
+async def test_sdk_key_volume_and_explicit_power(tmp_path, sdk):
     remote = wrapper(tmp_path, sdk)
     remote._availability(True)
     await remote.press("DPAD_RIGHT")
     sdk.send_key_command.assert_called_with("DPAD_RIGHT")
-    await remote.launch("test://app")
-    sdk.send_launch_app_command.assert_called_once_with("test://app")
     await remote.volume(True)
     sdk.send_key_command.assert_called_with("VOLUME_UP")
     await remote.wake()  # Already on; no power key.
@@ -211,4 +209,70 @@ async def test_pair_network_failure_is_actionable(tmp_path):
     remote.client.async_start_pairing = AsyncMock(side_effect=CannotConnect())
     with pytest.raises(RemoteUnavailable, match="Pairing connection failed"):
         await remote.pair(AsyncMock(return_value="ABC123"))
+    await remote.close()
+
+
+async def test_remote_has_no_application_launch_interface(tmp_path, sdk):
+    remote = wrapper(tmp_path, sdk)
+    assert not hasattr(remote, "launch")
+    sdk.send_launch_app_command.assert_not_called()
+    await remote.close()
+
+
+async def test_reported_power_is_forwarded_to_controller_callbacks(tmp_path, sdk):
+    remote = wrapper(tmp_path, sdk)
+    changes = []
+    remote.add_power_callback(changes.append)
+    callback = sdk.add_is_on_updated_callback.call_args.args[0]
+    callback(False)
+    callback(True)
+    assert changes == [False, True]
+    await remote.close()
+
+
+@pytest.mark.parametrize("initial,target", [(True, False), (False, True)])
+async def test_power_toggle_is_guarded_and_waits_for_report(tmp_path, sdk, initial, target):
+    remote = wrapper(tmp_path, sdk)
+    sdk.is_on = initial
+    remote._availability(True)
+    callback = sdk.add_is_on_updated_callback.call_args.args[0]
+
+    def send(key):
+        assert key == "POWER"
+        sdk.is_on = target
+        callback(target)
+
+    sdk.send_key_command.side_effect = send
+    if target:
+        await remote.wake()
+        await remote.wake()
+    else:
+        await remote.standby()
+        await remote.standby()
+    sdk.send_key_command.assert_called_once_with("POWER")
+    assert remote.is_on is target
+    await remote.close()
+
+
+async def test_unconfirmed_power_toggle_is_not_repeated(tmp_path, sdk):
+    from channelpilot.core.errors import PowerStateUnconfirmed
+
+    remote = wrapper(tmp_path, sdk, power_timeout=0.005)
+    remote._availability(True)
+    sdk.is_on = True
+    with pytest.raises(PowerStateUnconfirmed, match="No power-state confirmation"):
+        await remote.standby()
+    assert remote.is_on is None  # Old state is insufficient to safely toggle again.
+    await remote.standby()
+    assert [call.args[0] for call in sdk.send_key_command.call_args_list] == ["POWER", "SLEEP"]
+    await remote.close()
+
+
+async def test_unknown_power_never_uses_toggle(tmp_path, sdk):
+    remote = wrapper(tmp_path, sdk)
+    remote._availability(True)
+    sdk.is_on = None
+    await remote.standby()
+    await remote.wake()
+    assert [call.args[0] for call in sdk.send_key_command.call_args_list] == ["SLEEP", "WAKEUP"]
     await remote.close()

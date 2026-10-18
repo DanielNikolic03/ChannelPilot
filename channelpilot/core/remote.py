@@ -14,7 +14,7 @@ from androidtvremote2 import AndroidTVRemote, CannotConnect, ConnectionClosed, I
 from cryptography import x509
 
 from .config import RemoteConfig
-from .errors import PairingRequired, RemoteUnavailable
+from .errors import PairingRequired, PowerStateUnconfirmed, RemoteUnavailable
 
 _LOG = logging.getLogger(__name__)
 
@@ -30,11 +30,11 @@ class Remote(Protocol):
 
     async def wait_ready(self) -> None: ...
     async def press(self, key: str) -> None: ...
-    async def launch(self, link: str) -> None: ...
     async def wake(self) -> None: ...
     async def standby(self) -> None: ...
     def add_availability_callback(self, callback: Callable[[bool], None]) -> None: ...
     def add_app_callback(self, callback: Callable[[str], None]) -> None: ...
+    def add_power_callback(self, callback: Callable[[bool], None]) -> None: ...
 
 
 class RemoteController:
@@ -52,12 +52,16 @@ class RemoteController:
         self.epoch = 0
         self._auth_error = False
         self._changed = asyncio.Event()
+        self._power_changed = asyncio.Event()
+        self._power_uncertain = False
         self._send_lock = asyncio.Lock()
         self._supervisor: asyncio.Task[None] | None = None
         self._availability_callbacks: list[Callable[[bool], None]] = []
         self._app_callbacks: list[Callable[[str], None]] = []
+        self._power_callbacks: list[Callable[[bool], None]] = []
         self.client.add_is_available_updated_callback(self._availability)
         self.client.add_current_app_updated_callback(self._app_updated)
+        self.client.add_is_on_updated_callback(self._power_updated)
 
     @property
     def current_app(self) -> str | None:
@@ -65,13 +69,22 @@ class RemoteController:
 
     @property
     def is_on(self) -> bool | None:
-        return self.client.is_on if self.connected else None
+        return self.client.is_on if self.connected and not self._power_uncertain else None
 
     def add_availability_callback(self, callback: Callable[[bool], None]) -> None:
         self._availability_callbacks.append(callback)
 
     def add_app_callback(self, callback: Callable[[str], None]) -> None:
         self._app_callbacks.append(callback)
+
+    def add_power_callback(self, callback: Callable[[bool], None]) -> None:
+        self._power_callbacks.append(callback)
+
+    def _power_updated(self, is_on: bool) -> None:
+        self._power_uncertain = False
+        self._power_changed.set()
+        for callback in self._power_callbacks:
+            callback(is_on)
 
     def _app_updated(self, app: str) -> None:
         for callback in self._app_callbacks:
@@ -83,6 +96,8 @@ class RemoteController:
         self.connected = available
         if not available:
             self.epoch += 1
+            self._power_uncertain = True
+        self._power_changed.set()
         _LOG.info("Connected to Chromecast" if available else "Disconnected; reconnecting")
         self._changed.set()
         for callback in self._availability_callbacks:
@@ -205,19 +220,47 @@ class RemoteController:
     async def press(self, key: str) -> None:
         await self._send(lambda: self.client.send_key_command(key), key)
 
-    async def launch(self, link: str) -> None:
-        await self._send(lambda: self.client.send_launch_app_command(link), "launch application")
+    async def _set_power(self, on: bool) -> bool:
+        await self.wait_ready()
+        current = self.is_on
+        if current is on:
+            _LOG.debug("Chromecast already reports %s", "on" if on else "standby")
+            return False
+        if current is None:
+            # Without a reported state a toggle could do the opposite of the request.
+            await self.press("WAKEUP" if on else "SLEEP")
+            _LOG.warning(
+                "Power state unknown; sent explicit %s without a POWER toggle",
+                "WAKEUP" if on else "SLEEP",
+            )
+            return True
+        epoch = self.epoch
+        self._power_changed.clear()
+        self._power_uncertain = True
+        await self.press("POWER")
+        try:
+            async with asyncio.timeout(self.config.power_timeout):
+                while self.is_on is not on:
+                    if not self.connected or self.epoch != epoch:
+                        raise PowerStateUnconfirmed(
+                            "Connection changed after POWER; not toggling again automatically"
+                        )
+                    self._power_changed.clear()
+                    await self._power_changed.wait()
+        except TimeoutError as exc:
+            raise PowerStateUnconfirmed(
+                "No power-state confirmation after POWER; not toggling again automatically. "
+                "Check Chromecast/TV HDMI-CEC settings and inspect status."
+            ) from exc
+        _LOG.info("Chromecast reports %s", "on" if on else "standby")
+        return True
 
     async def wake(self) -> None:
-        await self.wait_ready()
-        if self.is_on is not True:
-            await self.press("WAKEUP")
+        if await self._set_power(True):
             await asyncio.sleep(self.config.wake_delay)
 
     async def standby(self) -> None:
-        await self.wait_ready()
-        if self.is_on is not False:
-            await self.press("SLEEP")
+        await self._set_power(False)
 
     async def volume(self, up: bool) -> None:
         await self.press("VOLUME_UP" if up else "VOLUME_DOWN")

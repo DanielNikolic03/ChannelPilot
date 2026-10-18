@@ -9,18 +9,46 @@ import pytest
 
 from channelpilot.core.channels import Channels
 from channelpilot.core.config import Config
-from channelpilot.core.errors import RemoteUnavailable
+from channelpilot.core.errors import AdbUnavailable, RemoteUnavailable
+
+
+class FakeAdb:
+    def __init__(self) -> None:
+        self.connected = True
+        self.endpoint = "192.0.2.1:41191"
+        self.commands: list[tuple[str, str]] = []
+        self.failures = 0
+
+    def invalidate(self) -> None:
+        self.connected = False
+
+    async def ensure_connected(self, *, recover: bool = True) -> None:
+        if self.failures:
+            self.failures -= 1
+            self.connected = False
+            raise AdbUnavailable("offline")
+        self.connected = True
+
+    async def launch(self, package: str, activity: str | None = None) -> None:
+        await self.ensure_connected()
+        self.commands.append(("start", package))
+
+    async def force_stop(self, package: str, *, recover: bool = True) -> None:
+        await self.ensure_connected(recover=recover)
+        self.commands.append(("stop", package))
 
 
 class FakeRemote:
     def __init__(self) -> None:
         self.connected = True
+        self.adb = FakeAdb()
         self.epoch = 0
         self.current_app: str | None = None
         self.is_on: bool | None = True
         self.commands: list[str] = []
         self.availability: list[Callable[[bool], None]] = []
         self.apps: list[Callable[[str], None]] = []
+        self.power: list[Callable[[bool], None]] = []
         self.failures = 0
         self.block: asyncio.Event | None = None
         self.started = asyncio.Event()
@@ -30,6 +58,14 @@ class FakeRemote:
 
     def add_app_callback(self, callback: Callable[[str], None]) -> None:
         self.apps.append(callback)
+
+    def add_power_callback(self, callback: Callable[[bool], None]) -> None:
+        self.power.append(callback)
+
+    def set_power(self, is_on: bool) -> None:
+        self.is_on = is_on
+        for callback in self.power:
+            callback(is_on)
 
     def set_connection(self, available: bool) -> None:
         self.connected = available
@@ -57,9 +93,6 @@ class FakeRemote:
         if self.failures:
             self.failures -= 1
             raise RemoteUnavailable("transmission failed")
-
-    async def launch(self, link: str) -> None:
-        await self.press(f"launch:{link}")
 
     async def wake(self) -> None:
         await self.wait_ready()
@@ -90,8 +123,6 @@ def app_configs() -> dict:
     for app in settings.values():
         app.update(
             calibrated=True,
-            launch_link="test://app",
-            home_delay=0,
             startup_delay=0,
             channel_delay=0,
         )

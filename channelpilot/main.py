@@ -7,6 +7,7 @@ import signal
 from pathlib import Path
 
 from channelpilot.apps.registry import build_apps
+from channelpilot.core.adb import AdbController
 from channelpilot.core.channels import Channels
 from channelpilot.core.config import Config
 from channelpilot.core.controller import Controller
@@ -25,8 +26,9 @@ async def run(args: argparse.Namespace) -> None:
         # Validate without network activity or credentials.
         channels = Channels.load(config.channels_file)
         remote = RemoteController(config.remote)
-        apps = build_apps(remote, config.apps, config.operation_timeout)
-        Controller(remote, channels, apps, default_channel=config.default_channel)
+        adb = AdbController(config.adb, config.remote.host, remote)
+        apps = build_apps(remote, config.apps, config.operation_timeout, adb=adb)
+        Controller(remote, channels, apps, app_close_timeout=config.adb.shutdown_timeout)
         NumpadListener(config.device, lambda _: None, overrides=config.input_key_overrides)
         print(f"Configuration valid: {len(channels.by_id)} channels, {len(apps)} applications")
         for name, app in apps.items():
@@ -38,6 +40,7 @@ async def run(args: argparse.Namespace) -> None:
         return
     remote = RemoteController(config.remote)
     tasks: list[asyncio.Task[None]] = []
+    controller: Controller | None = None
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -47,6 +50,21 @@ async def run(args: argparse.Namespace) -> None:
         await stop.wait()
 
     try:
+        if args.adb_pair is not None:
+            adb = AdbController(config.adb, config.remote.host, remote)
+            tasks.append(
+                asyncio.create_task(
+                    adb.pair(
+                        args.adb_pair, lambda: read_line("Enter the six-digit ADB pairing code: ")
+                    ),
+                    name="adb-pairing",
+                )
+            )
+            tasks.append(asyncio.create_task(wait_for_stop(), name="shutdown-signal"))
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+            return
         if args.pair:
             tasks.append(
                 asyncio.create_task(
@@ -60,7 +78,8 @@ async def run(args: argparse.Namespace) -> None:
                 task.result()
             return
         channels = Channels.load(config.channels_file)
-        apps = build_apps(remote, config.apps, config.operation_timeout)
+        adb = AdbController(config.adb, config.remote.host, remote)
+        apps = build_apps(remote, config.apps, config.operation_timeout, adb=adb)
         controller = Controller(
             remote,
             channels,
@@ -68,7 +87,7 @@ async def run(args: argparse.Namespace) -> None:
             operation_timeout=config.operation_timeout,
             retry_limit=config.retry_limit,
             standby_on_failure=config.standby_on_failure,
-            default_channel=config.default_channel,
+            app_close_timeout=config.adb.shutdown_timeout,
         )
         controller.state.status = Status.CONNECTING
         remote.start()
@@ -93,6 +112,8 @@ async def run(args: argparse.Namespace) -> None:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if controller is not None:
+            await controller.close(config.adb.shutdown_timeout)
         await remote.close()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.remove_signal_handler(sig)
@@ -102,6 +123,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Accessible Chromecast control")
     parser.add_argument("--config", type=Path, default=Path("config/config.json"))
     mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--adb-pair", type=int, metavar="PORT", help="Pair ADB using the displayed pairing port"
+    )
     mode.add_argument("--pair", action="store_true", help="Initial/manual Chromecast pairing")
     mode.add_argument("--test", action="store_true", help="Terminal controls without a numpad")
     mode.add_argument(

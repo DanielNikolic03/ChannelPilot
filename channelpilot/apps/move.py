@@ -9,8 +9,8 @@ from .base import TVApp
 
 class MoveApp(TVApp):
     async def navigate_to_channel(self, channel: Channel) -> None:
-        # Always reset; never use a presumed previous selection after external interaction.
-        await self.reset_navigation()
+        if not self.can_reuse_navigation():
+            await self.reset_navigation()
         if self.presumed_position is None:
             raise NavigationError("MOVE baseline unknown")
         delta = channel.navigation_id - self.presumed_position

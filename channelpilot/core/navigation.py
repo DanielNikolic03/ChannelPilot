@@ -14,7 +14,7 @@ _LOG = logging.getLogger(__name__)
 def validate_steps(steps: list[dict[str, Any]]) -> None:
     if not isinstance(steps, list) or len(steps) > 200:
         raise ValueError("Navigation sequences must be lists with at most 200 steps")
-    for step in steps:
+    for index, step in enumerate(steps, start=1):
         if not isinstance(step, dict):
             raise ValueError("Each navigation step must be an object")
         actions = set(step) & {"press", "wait", "checkpoint"}
@@ -29,7 +29,13 @@ def validate_steps(steps: list[dict[str, Any]]) -> None:
             key = step["press"]
             if not isinstance(key, str):
                 raise ValueError("press must be an Android key name")
-            RemoteKeyCode.Value(key if key.startswith("KEYCODE_") else f"KEYCODE_{key}")
+            try:
+                RemoteKeyCode.Value(key if key.startswith("KEYCODE_") else f"KEYCODE_{key}")
+            except ValueError:
+                hint = " Use HOME instead." if key.removeprefix("KEYCODE_") == "DPAD_HOME" else ""
+                raise ValueError(
+                    f"Unknown remote key {key!r} at navigation step {index}.{hint}"
+                ) from None
             times = step.get("times", 1)
             if type(times) is not int or not 1 <= times <= 1000:
                 raise ValueError("times must be an integer from 1 to 1000")

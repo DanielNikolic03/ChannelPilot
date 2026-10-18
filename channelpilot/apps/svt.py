@@ -9,7 +9,8 @@ from .base import TVApp
 
 class SVTApp(TVApp):
     async def navigate_to_channel(self, channel: Channel) -> None:
-        await self.reset_navigation()
+        if not self.can_reuse_navigation():
+            await self.reset_navigation()
         if self.presumed_position is None:
             raise NavigationError("SVT baseline unknown")
         delta = channel.navigation_id - self.presumed_position

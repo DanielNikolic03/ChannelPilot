@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from channelpilot.apps.base import TVApp
 
 from .channels import Channels
-from .errors import CalibrationRequired, ChannelPilotError, PairingRequired
+from .errors import CalibrationRequired, ChannelPilotError, PairingRequired, PowerStateUnconfirmed
 from .remote import Remote
 from .state import Confidence, ControllerState, Status
 
@@ -30,27 +30,27 @@ class Controller:
         operation_timeout: float = 120,
         retry_limit: int = 1,
         standby_on_failure: bool = False,
-        default_channel: str | None = None,
+        app_close_timeout: float = 8,
     ) -> None:
         if retry_limit not in (0, 1):
             raise ValueError("At most one retry is supported")
         for channel in channels.by_id.values():
             if channel.app not in apps:
                 raise ValueError(f"Channel {channel.id} uses unregistered app {channel.app}")
-        if default_channel is not None and default_channel not in channels.by_id:
-            raise ValueError("default_channel is not registered")
         self.remote = remote
         self.channels = channels
         self.apps = apps
         self.operation_timeout = operation_timeout
         self.retry_limit = retry_limit
         self.standby_on_failure = standby_on_failure
-        self.default_channel = default_channel
-        self.state = ControllerState(connected=remote.connected)
+        self.app_close_timeout = app_close_timeout
+        self.state = ControllerState(connected=remote.connected, is_on=remote.is_on)
         self.queue: asyncio.Queue[Request] = asyncio.Queue(maxsize=1)
         self._active: Request | None = None
+        self._opened_app: TVApp | None = None
         remote.add_availability_callback(self._availability)
         remote.add_app_callback(self._app_changed)
+        remote.add_power_callback(self._power_changed)
 
     def invalidate_navigation(self) -> None:
         for app in self.apps.values():
@@ -65,6 +65,10 @@ class Controller:
 
     def _availability(self, available: bool) -> None:
         self.state.connected = available
+        self.state.is_on = self.remote.is_on
+        if not available:
+            for app in self.apps.values():
+                app.adb.invalidate()
         self.invalidate_navigation()
         if not available and self._active is None:
             self.state.status = Status.CONNECTING
@@ -77,9 +81,18 @@ class Controller:
         self.state.current_app = package
         self.state.app_confidence = Confidence.CONFIRMED
 
+    def _power_changed(self, is_on: bool) -> None:
+        self.state.is_on = is_on
+        if not is_on:
+            self.invalidate_navigation()
+            if self._active is None:
+                self.state.status = Status.STANDBY
+
     def submit(self, action: str, value: str | None = None) -> None:
-        if action not in {"channel", "wake", "standby", "key", "launch"}:
+        if action not in {"channel", "wake", "standby", "key", "open", "close", "adb-connect"}:
             raise ValueError(f"Unknown action: {action}")
+        if action in {"open", "close"} and value not in self.apps:
+            raise ValueError(f"Unknown app: {value}")
         if action == "channel":
             if value not in self.channels.by_id:
                 raise ValueError(f"Unknown channel: {value}")
@@ -104,10 +117,7 @@ class Controller:
             )
             self.submit("channel", channel.id)
         elif action in {"wake", "standby"}:
-            if action == "wake" and self.default_channel:
-                self.submit("channel", self.default_channel)
-            else:
-                self.submit(action)
+            self.submit(action)
 
     async def run(self) -> None:
         try:
@@ -124,6 +134,7 @@ class Controller:
                     self._failed(exc)
                     _LOG.exception("Unexpected operation failure; waiting for new input")
                 finally:
+                    self.refresh_adb_state()
                     self._active = None
                     self.queue.task_done()
         finally:
@@ -155,7 +166,7 @@ class Controller:
             except (ChannelPilotError, TimeoutError, OSError) as exc:
                 self._failed(exc)
                 # Configuration/auth require a human; do not navigate blindly to fix them.
-                if isinstance(exc, (CalibrationRequired, PairingRequired)):
+                if isinstance(exc, (CalibrationRequired, PairingRequired, PowerStateUnconfirmed)):
                     return
                 if attempt == self.retry_limit:
                     _LOG.error("Recovery failed; waiting for a new request")
@@ -173,30 +184,81 @@ class Controller:
             app = self.apps[channel.app]
             self.state.last_attempted_channel = channel.id
             app.require_calibration()  # Validate before sending any keypresses.
-        self.invalidate_navigation()
+        if request.action != "channel":
+            self.invalidate_navigation()
         self.state.status = Status.CONNECTING
         await self.remote.wait_ready()
         if request.action == "standby":
+            if self._opened_app:
+                try:
+                    async with asyncio.timeout(self.app_close_timeout):
+                        await self._opened_app.close(recover=False)
+                    self._opened_app = None
+                except (ChannelPilotError, TimeoutError, OSError) as exc:
+                    _LOG.warning("App close failed; sending standby anyway: %s", exc)
             _LOG.info("Entering standby")
             await self.remote.standby()
             self.state.status = Status.STANDBY
             return
-        if request.action in {"key", "launch"}:
+        if request.action == "adb-connect":
+            await next(iter(self.apps.values())).adb.ensure_connected()
+            self.state.status = Status.READY
+            return
+        if request.action == "close":
+            selected = self.apps[request.value]  # type: ignore[index]
+            await selected.close()
+            if self._opened_app is selected:
+                self._opened_app = None
+            self.state.status = Status.READY
+            return
+        if request.action == "key":
             if request.value is None:
                 raise ValueError("Manual command requires a value")
-            if request.action == "key":
-                await self.remote.press(request.value)
-            else:
-                await self.remote.launch(request.value)
+            await self.remote.press(request.value)
             self.state.status = Status.READY
             return
+        reuse = (
+            request.action == "channel"
+            and self._opened_app is app
+            and self.state.sequence_completed
+            and app.can_reuse_navigation()
+        )
         await self.remote.wake()
         if request.action == "wake":
+            _LOG.info("Wake request completed; no channel selected")
             self.state.status = Status.READY
             return
-        self.state.status = Status.LAUNCHING_APP
-        await app.open()
+        if request.action == "open":
+            app = self.apps[request.value]  # type: ignore[index]
+        # Recheck after wake: connection/app/power callbacks may have invalidated continuity.
+        if reuse and app.can_reuse_navigation():
+            _LOG.info(
+                "Switching channel in running app: %s (presumed position %s)",
+                app.package,
+                app.presumed_position,
+            )
+        else:
+            self.invalidate_navigation()
+            self.state.status = Status.LAUNCHING_APP
+            previous = self._opened_app or next(
+                (
+                    candidate
+                    for candidate in self.apps.values()
+                    if candidate.package == self.remote.current_app
+                ),
+                None,
+            )
+            if previous is not None and previous is not app:
+                await previous.close()
+                self._opened_app = None
+            # Retain identity even if launch/startup fails, so retry/shutdown can close it.
+            self._opened_app = app
+            await app.open(prepare=request.action != "open")
+        if request.action == "open":
+            self.state.status = Status.READY
+            return
         self.state.status = Status.NAVIGATING
+        self.state.sequence_completed = False
         _LOG.info("Navigation started: %s", channel.name)
         await app.navigate_to_channel(channel)
         self.state.presumed_channel = channel.id
@@ -208,3 +270,23 @@ class Controller:
         self.state.sequence_completed = True
         self.state.status = Status.READY
         _LOG.info("Navigation sequence completed: %s (playback presumed)", channel.name)
+
+    def refresh_adb_state(self) -> None:
+        self.state.is_on = self.remote.is_on
+        if self.apps:
+            adb = next(iter(self.apps.values())).adb
+            self.state.adb_connected = adb.connected
+            self.state.adb_endpoint = adb.endpoint
+
+    async def close(self, shutdown_timeout: float = 8) -> None:
+        """Call after the worker stops; do not enter device menus during shutdown."""
+        try:
+            if self._opened_app:
+                async with asyncio.timeout(shutdown_timeout):
+                    await self._opened_app.close(recover=False)
+                self._opened_app = None
+        except (ChannelPilotError, TimeoutError, OSError) as exc:
+            _LOG.warning("Could not force-stop the app during shutdown: %s", exc)
+        finally:
+            self.invalidate_navigation()
+            self.refresh_adb_state()

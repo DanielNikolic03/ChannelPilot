@@ -11,6 +11,7 @@ Group=channelpilot
 SupplementaryGroups=channelpilot-input
 WorkingDirectory=/opt/channelpilot
 Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/var/lib/channelpilot
 ExecStart=/opt/channelpilot/.venv/bin/python -m channelpilot --config /etc/channelpilot/config.json
 Restart=on-failure
 RestartSec=5

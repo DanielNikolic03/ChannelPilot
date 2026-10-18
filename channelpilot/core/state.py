@@ -31,5 +31,8 @@ class ControllerState:
     navigation_confidence: Confidence = Confidence.UNKNOWN
     status: Status = Status.IDLE
     connected: bool = False
+    is_on: bool | None = None
+    adb_connected: bool = False
+    adb_endpoint: str | None = None
     last_error: str | None = None
     sequence_completed: bool = False

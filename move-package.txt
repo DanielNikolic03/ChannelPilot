@@ -1,0 +1,197 @@
+Activity Resolver Table:
+  Non-Data Actions:
+      android.intent.action.MAIN:
+        d51f07b com.mtssi.supernovabih/.activities.MainActivity filter d4b0e98
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.LAUNCHER"
+          Category: "android.intent.category.LEANBACK_LAUNCHER"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+
+Receiver Resolver Table:
+  Non-Data Actions:
+      androidx.profileinstaller.action.SAVE_PROFILE:
+        a3fd12d com.mtssi.supernovabih/androidx.profileinstaller.ProfileInstallReceiver filter 6b918b0
+          Action: "androidx.profileinstaller.action.SAVE_PROFILE"
+      androidx.profileinstaller.action.INSTALL_PROFILE:
+        a3fd12d com.mtssi.supernovabih/androidx.profileinstaller.ProfileInstallReceiver filter 4b5f662
+          Action: "androidx.profileinstaller.action.INSTALL_PROFILE"
+      androidx.profileinstaller.action.SKIP_FILE:
+        a3fd12d com.mtssi.supernovabih/androidx.profileinstaller.ProfileInstallReceiver filter 457f3f3
+          Action: "androidx.profileinstaller.action.SKIP_FILE"
+      android.AL:
+        c051957 com.mtssi.supernovabih/.broadcastReceivers.AlarmBroadcastReceiver filter c2e7c44
+          Action: "android.AL"
+      androidx.profileinstaller.action.BENCHMARK_OPERATION:
+        a3fd12d com.mtssi.supernovabih/androidx.profileinstaller.ProfileInstallReceiver filter a755329
+          Action: "androidx.profileinstaller.action.BENCHMARK_OPERATION"
+      android.intent.action.BOOT_COMPLETED:
+        8f7b6f1 com.mtssi.supernovabih/.broadcastReceivers.BootCompletedBroadcastReceiver filter a9c82d6
+          Action: "android.intent.action.BOOT_COMPLETED"
+
+Domain verification status:
+
+Permissions:
+  Permission [com.mtssi.supernovabih.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION] (ab97036):
+    sourcePackage=com.mtssi.supernovabih
+    uid=10130 gids=[] type=0 prot=signature
+    perm=PermissionInfo{e96b37 com.mtssi.supernovabih.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION}
+    flags=0x0
+
+Registered ContentProviders:
+  com.mtssi.supernovabih/com.squareup.picasso.PicassoProvider:
+    Provider{59798a4 com.mtssi.supernovabih/com.squareup.picasso.PicassoProvider}
+  com.mtssi.supernovabih/androidx.startup.InitializationProvider:
+    Provider{4e6260d com.mtssi.supernovabih/androidx.startup.InitializationProvider}
+  com.mtssi.supernovabih/androidx.core.content.FileProvider:
+    Provider{a459c2 com.mtssi.supernovabih/androidx.core.content.FileProvider}
+
+ContentProvider Authorities:
+  [com.mtssi.supernovabih.androidx-startup]:
+    Provider{4e6260d com.mtssi.supernovabih/androidx.startup.InitializationProvider}
+      applicationInfo=ApplicationInfo{75f83d3 com.mtssi.supernovabih}
+  [com.mtssi.supernovabih.provider]:
+    Provider{a459c2 com.mtssi.supernovabih/androidx.core.content.FileProvider}
+      applicationInfo=ApplicationInfo{6079b10 com.mtssi.supernovabih}
+  [com.mtssi.supernovabih.com.squareup.picasso]:
+    Provider{59798a4 com.mtssi.supernovabih/com.squareup.picasso.PicassoProvider}
+      applicationInfo=ApplicationInfo{dc1609 com.mtssi.supernovabih}
+
+Key Set Manager:
+  [com.mtssi.supernovabih]
+      Signing KeySets: 67
+
+Packages:
+  Package [com.mtssi.supernovabih] (62500e):
+    appId=10130
+    pkg=Package{7148a2f com.mtssi.supernovabih}
+    codePath=/data/app/~~NKVLBpwWLgUuHeHI5EeekA==/com.mtssi.supernovabih-0Mr0RvmXVT8AbdI-u4WPRA==
+    resourcePath=/data/app/~~NKVLBpwWLgUuHeHI5EeekA==/com.mtssi.supernovabih-0Mr0RvmXVT8AbdI-u4WPRA==
+    legacyNativeLibraryDir=/data/app/~~NKVLBpwWLgUuHeHI5EeekA==/com.mtssi.supernovabih-0Mr0RvmXVT8AbdI-u4WPRA==/lib
+    extractNativeLibs=false
+    primaryCpuAbi=armeabi-v7a
+    secondaryCpuAbi=null
+    cpuAbiOverride=null
+    versionCode=20404 minSdk=26 targetSdk=36
+    minExtensionVersions=[]
+    versionName=2.04.04-release
+    usesNonSdkApi=false
+    splits=[base, config.armeabi_v7a, config.sv, config.xhdpi]
+    apkSigningVersion=3
+    flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP LARGE_HEAP ]
+    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    forceQueryable=false
+    queriesIntents=[Intent { act=android.speech.RecognitionService }]
+    dataDir=/data/user/0/com.mtssi.supernovabih
+    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]
+    timeStamp=2026-10-15 23:06:05
+    lastUpdateTime=2026-10-15 23:06:08
+    installerPackageName=com.android.vending
+    installerPackageUid=10059
+    initiatingPackageName=com.android.vending
+    originatingPackageName=null
+    updateOwnerPackageName=com.android.vending
+    packageSource=0
+    appMetadataFilePath=null
+    signatures=PackageSignatures{533583c version:3, signatures:[4e196ab6], past signatures:[]}
+    installPermissionsFixed=true
+    pkgFlags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP LARGE_HEAP ]
+    privatePkgFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    apexModuleName=null
+    declared permissions:
+      com.mtssi.supernovabih.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: prot=signature
+    requested permissions:
+      android.permission.INTERNET
+      android.permission.ACCESS_NETWORK_STATE
+      android.permission.ACCESS_WIFI_STATE
+      android.permission.KILL_BACKGROUND_PROCESSES
+      android.permission.READ_EXTERNAL_STORAGE
+      android.permission.SET_TIME
+      android.permission.WRITE_EXTERNAL_STORAGE
+      android.permission.FLAG_GRANT_READ_URI_PERMISSION
+      android.permission.RECEIVE_BOOT_COMPLETED
+      android.permission.READ_PRIVILEGED_PHONE_STATE
+      android.permission.READ_PHONE_STATE
+      android.permission.WRITE_SETTINGS
+      android.permission.REBOOT
+      android.permission.SET_TIME_ZONE
+      android.permission.DEVICE_POWER
+      android.permission.SHUTDOWN
+      android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+      com.arris.chmframework.diagcontentprovider
+      android.permission.RECORD_AUDIO
+      android.permission.WAKE_LOCK
+      com.mtssi.supernovabih.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+    install permissions:
+      android.permission.WRITE_SETTINGS: granted=false
+      android.permission.SHUTDOWN: granted=false
+      android.permission.RECEIVE_BOOT_COMPLETED: granted=true
+      android.permission.DEVICE_POWER: granted=false
+      android.permission.SET_TIME_ZONE: granted=false
+      android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS: granted=true
+      com.mtssi.supernovabih.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: granted=true
+      android.permission.INTERNET: granted=true
+      android.permission.READ_PRIVILEGED_PHONE_STATE: granted=false
+      android.permission.SET_TIME: granted=false
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+      android.permission.KILL_BACKGROUND_PROCESSES: granted=true
+      android.permission.REBOOT: granted=false
+      android.permission.ACCESS_WIFI_STATE: granted=true
+      android.permission.WAKE_LOCK: granted=true
+    User 0: ceDataInode=2910 installed=true hidden=false suspended=false distractionFlags=0 stopped=false notLaunched=false enabled=0 instant=false virtual=false
+      installReason=4
+      firstInstallTime=2026-10-15 23:06:08
+      uninstallReason=0
+      overlay paths:
+        /data/resource-cache/com.android.systemui-neutral-W1i7.frro
+        /data/resource-cache/com.android.systemui-accent-0vMO.frro
+        /data/resource-cache/com.android.systemui-dynamic-IEOy.frro
+      lastDisabledCaller: com.android.vending
+      gids=[3003]
+      runtime permissions:
+        android.permission.READ_EXTERNAL_STORAGE: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT]
+        android.permission.READ_PHONE_STATE: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.WRITE_EXTERNAL_STORAGE: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT]
+        android.permission.RECORD_AUDIO: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+    User 10: ceDataInode=0 installed=false hidden=false suspended=false distractionFlags=0 stopped=true notLaunched=true enabled=0 instant=false virtual=false
+      installReason=0
+      firstInstallTime=1970-01-01 01:00:00
+      uninstallReason=0
+      gids=[3003]
+      runtime permissions:
+        android.permission.READ_EXTERNAL_STORAGE: granted=false
+        android.permission.READ_PHONE_STATE: granted=false
+        android.permission.WRITE_EXTERNAL_STORAGE: granted=false
+        android.permission.RECORD_AUDIO: granted=false
+
+Queries:
+  system apps queryable: false
+  queries via forceQueryable:
+  queries via package name:
+  queries via component:
+    com.android.settings.intelligence:
+      com.mtssi.supernovabih
+    com.google.android.play.games:
+      com.mtssi.supernovabih
+  queryable via interaction:
+    User 0:
+      [com.android.inputdevices,com.droidlogic,com.android.tv.feedbackconsent,com.android.tv.settings,com.android.localtransport,com.google.android.chromecast.chromecastservice,com.android.keychain,com.android.dynsystem,com.netflix.tokenmanager,com.android.providers.settings,android,com.android.location.fused,com.android.wallpaperbackup]:
+        com.mtssi.supernovabih
+      [com.google.android.gsf,com.google.android.gms]:
+        com.mtssi.supernovabih
+      com.google.android.webview:
+        com.mtssi.supernovabih
+      com.mtssi.supernovabih:
+        com.google.android.webview
+    User 10:
+  queryable via uses-library:
+
+Dexopt state:
+  [com.mtssi.supernovabih]
+    path: /data/app/~~NKVLBpwWLgUuHeHI5EeekA==/com.mtssi.supernovabih-0Mr0RvmXVT8AbdI-u4WPRA==/base.apk
+      arm: [status=speed-profile] [reason=install-dm] [primary-abi]
+        [location is /data/app/~~NKVLBpwWLgUuHeHI5EeekA==/com.mtssi.supernovabih-0Mr0RvmXVT8AbdI-u4WPRA==/oat/arm/base.odex]
+
+Compiler stats:
+  [com.mtssi.supernovabih]
+    (No recorded stats)

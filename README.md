@@ -1,28 +1,20 @@
 # ChannelPilot
 
-ChannelPilot lets an elderly viewer select a TV channel with one key on a USB numpad. A Raspberry Pi reads that numpad and controls MOVE and SVT Play on a separate Chromecast with Google TV using Python and `androidtvremote2`.
+ChannelPilot lets a viewer select a TV channel with one key on a USB numpad. A Raspberry Pi reads the numpad and controls MOVE and SVT Play on a Chromecast with Google TV.
 
-The application runs in the background without a desktop, terminal focus, ADB, Waydroid, or screen access. It preserves WayPi-TV's controls and channel order while replacing its architecture with asyncio, isolated app classes, persistent pairing, serialized navigation, and bounded recovery.
+The application is Python 3.11+ and asyncio. **Android TV Remote (`androidtvremote2`) sends navigation/power/volume keys. ADB starts and force-stops apps.** It runs in the background without a desktop, terminal focus, screenshots, OCR, or image recognition. The Pi does not run Android applications or Waydroid.
 
-**Implementation status:** the Python application and automated tests run without TV hardware. The supplied MOVE/SVT sequences are reference profiles from WayPi-TV, **not verified Chromecast profiles**. They are disabled until you configure app launching and calibrate navigation on your device. ChannelPilot cannot observe which channel is playing. A completed sequence means no detectable error occurred, not verified playback.
+The code and fake-device tests run without a television. Real navigation and the Wireless debugging recovery menu must be calibrated on your Chromecast. Sequence completion means no detectable error occurred; playback is presumed, never visually verified.
 
-## Hardware and dependencies
+## Install
 
-- Raspberry Pi 5 with Raspberry Pi OS and Python 3.11 or newer.
-- A USB numpad and a Chromecast with Google TV on the same LAN as the Pi.
-- MOVE (`com.mtssi.supernovabih`) and SVT Play (`se.svt.android.svtplay`) installed, signed in, and initially set up on the Chromecast.
-- Android TV Remote Service enabled on the Chromecast. Reserve its IP in your router.
-- `androidtvremote2==0.3.2`, `cryptography>=42` for credential validation, and Linux-only `evdev`. These install through `pyproject.toml`; development checks use pytest, pytest-asyncio, Ruff, and mypy.
+Requirements: Raspberry Pi 5 / Raspberry Pi OS, USB numpad, Chromecast with Google TV on the same LAN, MOVE and SVT Play installed and signed in. Reserve the Chromecast IP. Android TV Remote Service must be enabled, and initial ADB pairing requires Developer options → Wireless debugging. Devices without modern wireless debugging need a manually configured reachable ADB port; automatic mDNS recovery targets the modern wireless connection service.
 
-macOS supports pairing, remote commands, configuration validation, and terminal tests. Physical numpad input requires Linux. Network access must permit the Chromecast's remote service ports (normally TCP 6466 and 6467).
-
-## Quick setup
-
-On Raspberry Pi OS, install Python and the headers needed if evdev must be built:
+On Raspberry Pi OS:
 
 ```sh
 sudo apt update
-sudo apt install python3 python3-venv python3-dev build-essential linux-libc-dev git
+sudo apt install python3 python3-venv python3-dev build-essential linux-libc-dev git adb
 
 git clone https://github.com/DanielNikolic03/ChannelPilot.git
 cd ChannelPilot
@@ -31,135 +23,205 @@ python3 -m venv .venv
 cp config/config.example.json config/config.json
 ```
 
-On macOS, use Python 3.11+ and the same virtual environment/install commands; evdev is omitted automatically. Change `remote.host` in `config/config.json` to the Chromecast's address, then validate:
+Use recent [Android SDK Platform Tools](https://developer.android.com/tools/releases/platform-tools) if your distro's `adb` lacks `pair` or `mdns services`. Check with `adb version` and `adb mdns check`. On macOS, install Python 3.11+ and Platform Tools, then use the same virtual environment and pip commands. Linux-only evdev is omitted on macOS; terminal control works there.
+
+Set `remote.host` in `config/config.json` to the Chromecast IP. ADB uses that same host and will never select an unrelated discovered phone/TV. Set `adb.executable` to the absolute executable path if `adb` is not in PATH.
 
 ```sh
 .venv/bin/python -m channelpilot --check-config
 ```
 
-Configuration validation does not connect or generate credentials. It reports uncalibrated applications without rejecting the otherwise valid file. Errors in keys, sequence steps, channel registration, and numeric settings fail validation.
+Validation does not connect, generate credentials, or execute recovery menus. It reports uncalibrated apps and configuration migration needs.
 
-## Pair once
+## Pair both protocols once
 
-Keep the TV visible during initial setup:
+Remote pairing and ADB pairing are independent. Run both as the account that will run ChannelPilot; pairing your Mac does not authorize a different Raspberry Pi/account.
+
+First pair the Android TV Remote protocol:
 
 ```sh
 .venv/bin/python -m channelpilot --pair
 ```
 
-Enter the pairing code shown on the Chromecast. Pairing has a 120-second input deadline and bounded network operations. Rerun the command if a code is rejected. Codes and private credentials are never intentionally logged, including in debug mode; upstream protocol debug logging is suppressed.
+Enter the code shown on the TV. Remote certificates default to `~/.local/state/channelpilot/`, outside Git, with a private directory and mode-0600 files. Normal restarts reuse them. For missing/rejected/expired credentials, stop the service, run `--pair` with the same account/config, and restart. Move invalid/expired PEM files to a private backup before generating replacements. Keep the system clock correct.
 
-Credentials default to `~/.local/state/channelpilot/client-cert.pem` and `client-key.pem`, outside the repository. The directory is mode 0700 and files are mode 0600. Later runs reuse them, including after Pi restarts. Keep the system clock correct for certificate validation.
+Next, enable **Wireless debugging → Pair device with pairing code** on the Chromecast. Use the **pairing port** displayed there:
 
-If authentication is rejected, expired, or corrupted, stop the service and run `--pair` as the **same account with the same configuration** used by the service. For invalid or expired PEM files, move both files to a private backup outside the repository, then pair to generate a fresh pair. Normal remote/network failures never automatically delete credentials or initiate interactive pairing.
-
-## Configure and calibrate
-
-Edit `config/config.json`; paths are relative to that file, and `~` expands to the running user's home. See the complete [example configuration](config/config.example.json) and [hardware calibration procedure](docs/calibration.md).
-
-| Setting | Meaning |
-| --- | --- |
-| `remote.host` | Chromecast IP address or hostname |
-| `remote.credentials_dir` | Persistent private directory outside Git |
-| `remote.connect_timeout` | Deadline for initial connection attempts and readiness waits |
-| `remote.reconnect_delay` | Delay between initial connection failures; library handles reconnects after success |
-| `remote.command_delay` | Minimum processing pause after each buffered remote command |
-| `remote.wake_delay` | Additional pause after WAKEUP |
-| `channels_file` | JSON channel mapping path |
-| `input.device` | One explicit event device, preferably `/dev/input/by-id/...-event-kbd` |
-| `input.grab` | Exclusively grab that device only; default false |
-| `input.debounce` | Per-key press debounce interval in seconds |
-| `input.reconnect_delay` | Delay before reopening an unplugged numpad |
-| `input.key_overrides` | Optional Linux key-code strings mapped to actions |
-| `operation_timeout` | Deadline per complete attempt, including recovery on the retry |
-| `retry_limit` | 0 or 1, never more than one retry |
-| `standby_on_failure` | Attempt explicit SLEEP after final detectable failure |
-| `default_channel` | Channel ID selected by Enter; null makes Enter wake only |
-| `log_level` | INFO by default; DEBUG logs individual commands |
-
-The example's `default_channel` is `rts1`. Each app has its own package, `calibrated` flag, `launch_link` or `launch_steps`, startup/home delays, baseline position, reset sequence, and selection sequences. Tune these independently. Restart ChannelPilot after configuration changes; it does not hot reload.
-
-No reliable MOVE or SVT Android TV launch deep link was established from the reference sources. There is no fabricated default URL. `launch_link` accepts a tested URL/deep link, never a bare package name: package launching through the remote protocol is unreliable. Alternatively configure `launch_steps` from the Google TV HOME screen to the pinned app. The application sends HOME before those steps, waits `home_delay`, executes them, and waits `startup_delay`. HOME does **not** force-stop or reset a resumed app; `reset_steps` must accommodate that.
-
-Channel selection refuses to send commands until the responsible app is marked calibrated and both its launch and reset strategies exist. Manual terminal commands remain available for setup.
-
-## Controls and channels
-
-| Numpad | Action |
-| --- | --- |
-| 0–9 | Select mapped channel, waking the device if necessary |
-| + / − | Next / previous channel by numeric key, wrapping 9 → 0 and 0 → 9 |
-| Enter | Start `default_channel`, or wake only when it is null |
-| Backspace | Explicit standby |
-
-| Key | Channel | App | Navigation position from original source |
-| --- | --- | --- | --- |
-| 1 | SVT1 | SVT Play | 1 |
-| 2 | SVT2 | SVT Play | 2 |
-| 3 | Kunskapskanalen | SVT Play | 4 |
-| 4 | SVT24 | SVT Play | 5 |
-| 5 | BN Muzika | MOVE | 6 |
-| 6 | BN | MOVE | 5 |
-| 7 | Happy | MOVE | 4 |
-| 8 | Prva | MOVE | 3 |
-| 9 | Pink | MOVE | 2 |
-| 0 | RTS 1 | MOVE | 1 |
-
-SVT's original source calls its positions placeholders; verify them, especially the skipped position 3. MOVE positions are relative list positions rather than displayed channel numbers. See [reference findings](docs/reference-notes.md).
-
-Edit [channels.json](config/channels.json) to remap keys. IDs and keys must be unique, positions must be positive integers, and every app must be registered. To replace an existing key with another channel:
-
-```json
-{"id": "another-channel", "name": "Another Channel", "app": "move", "navigation_id": 7, "key": "5"}
+```sh
+.venv/bin/python -m channelpilot --adb-pair 40000
 ```
 
-Position 7 above is an illustration; use the actual calibrated position and remove the previous mapping for key 5. File order does not affect +/− ordering. Rapid +/− presses advance from the newest requested channel, including pending requests.
+`40000` is an example; use your actual pairing port. Enter the six-digit code when prompted. The code goes to adb through stdin, not command arguments or logs. ADB retains its own host keys, normally in `~/.android/`, outside this repository. The app does not reset those keys, kill the shared ADB server, or revoke authorizations.
 
-## Navigation and recovery behavior
+The pairing port differs from the normal connection port. After initial authorization, ChannelPilot discovers the connection port through `adb mdns services`. Example:
 
-A single asyncio worker owns all channel navigation, manual commands, wake, and standby. Only one operation can run at a time. There is one pending slot: new requests replace pending requests across all action types. An in-progress operation finishes or reaches a detectable error/timeout before the next starts. A standby request therefore replaces pending navigation but waits for the active operation to finish; a subsequent key can replace pending standby. Duplicate requests for the active channel are coalesced when nothing newer is pending.
+```text
+List of discovered mdns services
+adb-2A20105GN4CCJH-2CkQNv  _adb-tls-connect._tcp  192.168.0.115:41191
+```
 
-The state machine exposes IDLE, CONNECTING, READY, LAUNCHING_APP, NAVIGATING, RECOVERING, ERROR, and STANDBY. Terminal `status` shows requested channel, last attempted channel, presumed channel, app/confidence, connection status, sequence completion, and last error. Device-reported foreground app is confirmed as a protocol fact; all channel/menu positions remain assumed. A READY state after wake alone does not imply playback. STANDBY records completed standby instructions, not verified TV-panel power.
+ChannelPilot selects `_adb-tls-connect._tcp` for the configured host and verifies `get-state` reports `device`. It ignores pairing ports, legacy advertisements, unrelated hosts, and malformed records. `adb.port` optionally supplies an initial connection port; null uses discovery. Cached/configured ports are retried, then discovery finds a changed port before any settings navigation is attempted.
 
-Each channel request launches from HOME and runs the app's reset sequence before navigating from its configured baseline. No relative switch uses a stale previous channel. App changes, disconnects, standby/manual operations, and shutdown invalidate presumed state. `Controller.invalidate_navigation()` explicitly clears it. Disconnect epochs prevent a rapid disconnect/reconnect from allowing an old sequence to continue.
+## Automatic Wireless debugging recovery
 
-Detectable connection/transport failure, unexpected reported foreground app, or timeout aborts the attempt. Channel recovery invalidates state, waits for connectivity, wakes, returns HOME, and retries the **entire** operation once. Power/manual-command retries wait for connectivity and repeat their operation without launching or navigating an app. A failed recovery/second attempt enters ERROR and waits for a new request. Auth/calibration problems stop without a blind retry. Unexpected exceptions are logged and contained by the worker. Each attempt has `operation_timeout`; optional failure standby has its own deadline. No key is sent while the wrapper knows it is disconnected.
+If ADB cannot connect, ChannelPilot can navigate the Chromecast menus using the already-paired TV remote, enable Wireless debugging, then rediscover its new port with `adb mdns services` and reconnect.
 
-The connection task retries initial network failures. After connection, `androidtvremote2.keep_reconnecting()` owns reconnection and backoff. Reconnection restores readiness and invalidates navigation; it never resumes midway through an old command sequence. If an operation exhausts both deadlines while offline, the viewer must press a key again after connectivity returns. Reconnection attempts continue while the service runs; individual navigation waits stay bounded.
+Enter **your own device-specific menu steps** in `config/config.json`:
 
-Remote key calls only buffer data; they do not acknowledge channel selection. Missing foreground-app information is treated as unknown, not proof of launch failure or success. App loading screens, account dialogs, silent input loss, changed UI, and wrong playback can remain undetectable without screen access. There is no screenshot, OCR, or image verification code. Calibration and periodic human observation are necessary.
+```json
+"adb": {
+  "executable": "adb",
+  "port": null,
+  "server_port": 5037,
+  "command_timeout": 10,
+  "discovery_timeout": 5,
+  "recovery_timeout": 60,
+  "poll_interval": 1,
+  "recovery_cooldown": 60,
+  "shutdown_timeout": 8,
+  "recovery_calibrated": false,
+  "recovery_steps": []
+}
+```
 
-WAKEUP and SLEEP are explicit Android commands, never POWER toggles. Known matching power states suppress redundant commands. Actual television power and volume depend on your Chromecast/TV's HDMI-CEC and audio setup; test these on the real hardware.
+**`adb.recovery_steps` is the list to fill in manually.** It uses the same step format as app navigation. ChannelPilot sends HOME before the list, so begin with a wait if HOME needs time to load, followed by the actual menu navigation you tested. Do not add guessed steps or assume generic Google TV menu positions match your Chromecast.
 
-## Customize navigation
+Set `recovery_calibrated=true` after you test the sequence. It must leave debugging **enabled**, including handling any known network permission prompt. Blindly toggling a switch can disable an already-enabled setting: test what happens when debugging is on as well as off. Navigation has no screen observation; if you cannot make the menu sequence repeatable, leave it disabled and enable debugging manually.
 
-Sequences contain JSON objects:
+Recovery uses a bounded deadline and one menu pass, followed by a cooldown so a failed whole-operation retry does not immediately toggle the setting again. The app treats successful ADB connection as recovery confirmation. If the remote is disconnected, it cannot send recovery keys. Pairing/authentication rejection requires manual `--adb-pair`; menu recovery cannot recreate authorization or read a fresh pairing code. Reboot behavior depends on device firmware; test an actual Chromecast restart/power outage rather than assuming it always disables debugging or always retains authorization.
+
+mDNS must be supported on the LAN. Discovery failure can mean debugging is disabled, networking/multicast is unavailable, or the port has not appeared yet; the app cannot infer the switch state directly from a failed connection. See [calibration](docs/calibration.md).
+
+## App lifecycle and navigation
+
+When opening a different app, initializing an unknown state, or recovering from a failure:
+
+```text
+Wake if needed
+→ force-stop previous app when switching apps
+→ ensure ADB connection (recover debugging if configured and necessary)
+→ resolve the target's launcher activity
+→ ADB am start -S -W (fresh target process)
+→ wait startup_delay
+→ run startup_steps
+→ run reset_steps
+→ select_prefix → move by channel offset → select_suffix
+```
+
+ADB first resolves an Android TV `LEANBACK_LAUNCHER` activity, then falls back to `LAUNCHER`. Optional `activity` overrides resolution with a full component such as `com.mtssi.supernovabih/.activities.MainActivity`. ADB uses explicit device selection and validates package/activity arguments. It checks process exit codes, command errors, and launch status; it never sends ADB navigation/input commands.
+
+For subsequent selections within the running app, ChannelPilot keeps its last presumed channel position and sends only `select_prefix`, the movement delta from that position, and `select_suffix`. It does not run ADB launch/stop, startup delays/steps, or reset steps again. Selecting the presumed current channel sends no keys. For example, SVT1 → SVT2 moves RIGHT once and confirms; SVT2 → Kunskapskanalen uses its configured position difference, rather than navigating again from SVT1.
+
+Reuse requires a completed prior channel sequence, the same controlled app, an uninterrupted remote connection, valid assumed position, and no conflicting reported foreground app or standby state. Missing foreground-app information remains unknown: continuity is an assumption, not playback verification. Manual commands, explicit invalidation, reported app changes, power-off, disconnect/reconnect, and navigation failures invalidate the position. The next channel request performs a fresh launch/startup/reset. ADB connectivity is not needed for normal relative switches; it is checked when lifecycle/recovery needs it.
+
+Switching apps force-stops the previously tracked/configured foreground app first. Manual close and clean program shutdown force-stop the app opened by ChannelPilot. Standby attempts a bounded force-stop without Settings recovery, but an ADB close failure cannot prevent the remote power-off request. Shutdown cleanup is bounded and never opens Settings to recover ADB; an unavailable transport is logged and cleanup stops. The shared ADB server is left running to preserve other clients.
+
+Force-stop does not clear data, sign out accounts, or guarantee the app forgets its last channel. Test its actual cold-start behavior. All in-app steps and playback remain presumed. Remote foreground-app reporting can detect an unexpected package, but cannot verify selected channels.
+
+App settings:
+
+| Field | Meaning |
+| --- | --- |
+| `package` | Android app package ID used by ADB |
+| `activity` | Optional full activity component; null uses launcher resolution |
+| `calibrated` | Allows automatic channel procedures after human testing |
+| `startup_delay` | Pause after ADB launch completion, before navigating |
+| `startup_steps` | Optional in-app preparation after each fresh launch |
+| `reset_steps` | Establish the baseline on initialization; use `[]` if startup already reaches it |
+| `baseline` | Navigation position presumed after reset |
+| `select_prefix` | Open the channel selector |
+| `channel_delay` | Pause after each movement between positions |
+| `select_suffix` | Confirm selection/dismiss selector |
+
+`reset_steps` run after a fresh launch to initialize the baseline, including after invalidation or recovery. They are skipped for ordinary channel changes within the same app. Reset must still account for any state persisted on disk. Keep `reset_steps: []` when the fresh launch/startup steps already establish the baseline; this explicitly declares that no additional reset keys are needed. After reset, if the target equals `baseline`, selection prefix/suffix are skipped, so reset must leave that baseline channel playing. During relative switching, moving back to the baseline from another position uses normal movement and selection; it does not reset the app. MOVE uses vertical offsets and SVT horizontal offsets in their own Python classes. Configure positions in `channels.json`; layouts requiring a different model need an app-class adjustment.
+
+**Migration from the earlier remote-launch version:** `launch_link`, `launch_steps`, and `home_delay` are no longer used. Existing nonempty `launch_steps`/`launch_link` trigger a migration message before automatic channel navigation. Your old settings are preserved in local `config.json`: remove Google TV launcher steps, move any needed app-internal steps into `startup_steps`/`reset_steps`, clear the old launch fields, and recalibrate for a cold start. Manual `open`/`close` works even while an app is uncalibrated or still needs migration.
+
+## Controls and mappings
+
+```sh
+# Mac/SSH terminal tests
+.venv/bin/python -m channelpilot --test --debug
+
+# Raspberry Pi physical numpad
+.venv/bin/python -m channelpilot
+```
+
+Terminal commands:
+
+```text
+adb-connect
+open move
+open svt
+launch com.mtssi.supernovabih
+close move
+key HOME
+key DPAD_RIGHT
+key DPAD_CENTER
+key VOLUME_UP
+key VOLUME_DOWN
+key VOLUME_MUTE
+status
+invalidate
+quit
+```
+
+`open` and its alias `launch` accept registered app names/package IDs and use ADB. They only launch/wait/check the app, without configured startup/reset/channel navigation, so you can calibrate manually. `close` force-stops that registered app. Deep-link URL launching through the remote library has been removed. Individual `key` commands still use the remote library. `status` includes reported Chromecast `is_on`, separate remote/ADB connectivity, ADB endpoint, requested/attempted/presumed channels, sequence completion, confidence and errors. It is last-known status, not a live ADB poll. Manual commands invalidate presumed navigation. A READY status after opening alone is not a verified channel.
+
+In either mode, digits select channels; +/− select the next/previous numeric key with wrapping. Enter and `wake` only request power on; they never select a channel or open RTS 1. The retired `default_channel` setting is ignored. Backspace/`standby` attempts to close the opened app and requests power off even if ADB cleanup fails.
+
+Power uses a state-checked `POWER` key, as in the [Home Assistant client for androidtvremote2](https://github.com/home-assistant/core/blob/dev/homeassistant/components/androidtv_remote/media_player.py): send it only when the reported state differs from the request, and do nothing when the reported state already matches. `remote.power_timeout` bounds waiting for confirmation. A missing confirmation invalidates the power estimate and reports an error without automatically retoggling. If the power state is unknown, use explicit WAKEUP/SLEEP commands with a warning instead of a blind toggle; those commands may be unsupported by the device. `status.is_on` is the Chromecast's last-known reported state (or null), not proof of TV-panel power. TV panel/volume behavior depends on HDMI-CEC/audio settings; see [Google's CEC guidance](https://support.google.com/googlehome/answer/7498991).
+
+| Key | Channel | App | Navigation position |
+| --- | --- | --- | --- |
+| 1 | SVT1 | svt | 1 |
+| 2 | SVT2 | svt | 2 |
+| 3 | Kunskapskanalen | svt | 4 |
+| 4 | SVT24 | svt | 5 |
+| 5 | BN Muzika | move | 6 |
+| 6 | BN | move | 5 |
+| 7 | Happy | move | 4 |
+| 8 | Prva | move | 3 |
+| 9 | Pink | move | 2 |
+| 0 | RTS 1 | move | 1 |
+
+Positions are reference values from WayPi-TV, with SVT positions originally labeled placeholders. Verify them on your account/app version. IDs and keys are unique. To remap a key, edit `channels.json`; for example replace key 5's entry with the correct calibrated record:
+
+```json
+{"id":"another-channel","name":"Another Channel","app":"move","navigation_id":7,"key":"5"}
+```
+
+Position 7 is illustrative. +/− order follows numeric keys, not JSON file order, and rapid presses advance from the newest requested channel.
+
+## Sequence format and reliability
 
 ```json
 [
-  {"press": "DPAD_LEFT", "times": 2, "delay": 1},
-  {"wait": 0.5},
-  {"press": "DPAD_CENTER", "if_app": "com.example.tv"},
-  {"press": "WAKEUP", "if_power": false},
-  {"checkpoint": "menu opening sequence finished"}
+  {"press":"DPAD_LEFT","times":2,"delay":1},
+  {"wait":0.5},
+  {"press":"DPAD_CENTER","if_app":"com.example.tv"},
+  {"press":"WAKEUP","if_power":false},
+  {"checkpoint":"sequence marker; not screen verification"}
 ]
 ```
 
-Conditions use only available protocol state; an unknown value skips a conditional step. Delays follow each press and are additional to `remote.command_delay`. Repetition and sequence lengths are bounded, and execution has timeouts. Checkpoints are named sequence markers for logs, not UI observations. Keys are validated against the installed library's Android enum.
+Delays follow each press, in addition to `remote.command_delay`. Conditions use only available reported app/power facts; unknown values skip conditional steps. Repetitions and sequence lengths are bounded, and complete attempts time out. Checkpoints only label progress in logs. The same utilities run app navigation and ADB settings recovery; no visual verification is introduced.
 
-MOVE independently applies its vertical list prefix, delta from the RTS 1 baseline, and confirmation/back suffix. SVT independently applies horizontal deltas from its SVT1 baseline. You can edit JSON timing, launch, reset, prefix, and suffix steps without changing controller code. If Chromecast's app layout differs fundamentally from these reference models, adjust that application's Python class.
+One worker serializes channels, app lifecycle, recovery-menu navigation, power, and manual commands. There is one pending slot: the newest request replaces older pending requests. An active operation finishes/fails/times out before the next starts; no rapid-key cancellation interleaves apps. Pending standby can be replaced by a later channel key and vice versa.
 
-## Test from a terminal (including macOS)
+The states are IDLE, CONNECTING, READY, LAUNCHING_APP, NAVIGATING, RECOVERING, ERROR, STANDBY. Detectable failures invalidate presumed navigation, stop the current sequence, and allow one whole-operation retry. Channel retries return HOME and repeat fresh app launch/startup/reset/selection. A second failure waits in ERROR for a new request. Auth/calibration issues stop without blind retry. `retry_limit` allows only 0 or 1. Optional `standby_on_failure` is bounded. Unexpected exceptions are logged and contained by the worker.
 
-```sh
-.venv/bin/python -m channelpilot --test --debug
-```
+`operation_timeout` bounds each full attempt and must include possible ADB connection/recovery plus launch/startup/reset/selection. Each ADB CLI child also has `adb.command_timeout`; timed-out/cancelled children are killed/reaped. No shared server is killed. Remote reconnects use the library's documented mechanism. Disconnects invalidate both presumed navigation and cached ADB health. Old navigation never resumes after a disconnect epoch change; a complete retry or a new request starts again. Unobservable silent key loss, wrong channel selection, login prompts and app UI changes remain limitations.
 
-Enter a digit, `+`, `-`, `wake`, `standby`, `status`, `invalidate`, or `quit`. For calibration use `key HOME`, `key DPAD_LEFT`, `key DPAD_CENTER`, `key BACK`, `key VOLUME_UP`, `key VOLUME_DOWN`, and `key VOLUME_MUTE`. `launch <deep-link>` tests a candidate URL manually. Pairing and basic remote commands work without calibrating channel navigation. Manual commands share the worker and invalidate presumed navigation state. This is a human test interface; the service never needs an interactive terminal.
+## Numpad and other configuration
 
-## Run at boot without root
+Find the numpad on the Pi with `ls -l /dev/input/by-id/` and use its complete stable `...-event-kbd` path in `input.device`. Unplug it to see which entry disappears. The listener opens only that device, optionally grabs only it, filters repeat/held/bouncing keys, and reopens the same path after a disconnect. Mac `--test` ignores `input.device`.
 
-The following installation uses a dedicated service user and a group granted access only to the chosen numpad. First complete interactive calibration, then deploy the configuration. Use a fresh virtual environment at its final path; virtual environments should not be moved.
+Other settings in [config.example.json](config/config.example.json): `remote.connect_timeout`, `remote.reconnect_delay`, `remote.command_delay`, `remote.wake_delay`, `remote.power_timeout`, `channels_file`, `input.grab`, `input.debounce`, `input.reconnect_delay`, optional `input.key_overrides`, `log_level`, and complete-attempt/retry settings above. Paths are relative to the configuration file; `~` means the service account's home. Restart after changing config; it is not hot reloaded. DEBUG logs remote keys without upstream pairing payloads or ADB pairing codes.
+
+## Boot service without root
+
+Deploy the code and a virtual environment at its final path:
 
 ```sh
 sudo groupadd --system channelpilot-input
@@ -173,55 +235,29 @@ sudo install -m 0644 config/channels.json /etc/channelpilot/channels.json
 sudo install -d -o channelpilot -g channelpilot -m 0700 /var/lib/channelpilot
 ```
 
-In `/etc/channelpilot/config.json`, set `remote.credentials_dir` to `/var/lib/channelpilot` and `channels_file` to `channels.json`. If those service accounts/groups already exist, reuse them instead of rerunning their creation commands.
+Reuse existing accounts/groups instead of recreating them. In service config set `remote.credentials_dir=/var/lib/channelpilot`, `channels_file=channels.json`, and `adb.executable` to the installed executable (normally `/usr/bin/adb`). Keep ADB host keys in `/var/lib/channelpilot/.android/`, outside Git. Service HOME is explicitly `/var/lib/channelpilot`; the state directory is writable despite filesystem hardening.
 
-Find the numpad's stable event path and vendor/product identifiers:
-
-```sh
-ls -l /dev/input/by-id/
-udevadm info --attribute-walk --name=/dev/input/eventN
-```
-
-Replace `eventN` with the numpad's event device. Do not grant access to all keyboards. Create `/etc/udev/rules.d/99-channelpilot-numpad.rules` using the following [template](scripts/99-channelpilot-numpad.rules.example), replacing `VVVV`/`PPPP` with that numpad's USB vendor/product IDs. If multiple identical devices exist, also constrain their serial or physical path.
-
-```udev
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="VVVV", ATTRS{idProduct}=="PPPP", GROUP="channelpilot-input", MODE="0660"
-```
-
-Set `input.device` to the matching `/dev/input/by-id/...-event-kbd` path. Reload rules, replug the numpad, and pair as the service user:
+Identify the numpad USB vendor/product IDs with `udevadm info --attribute-walk --name=/dev/input/eventN`. Install the [udev template](scripts/99-channelpilot-numpad.rules.example) as `/etc/udev/rules.d/99-channelpilot-numpad.rules`, replacing VVVV/PPPP. Constrain serial/physical path too if identical devices exist. It grants the dedicated group access to the numpad, not all keyboards. Set `input.device` to its by-id event path.
 
 ```sh
 sudo udevadm control --reload-rules
-# Unplug and reconnect the numpad now.
-sudo -u channelpilot /opt/channelpilot/.venv/bin/python -m channelpilot --config /etc/channelpilot/config.json --pair
+# Replug the numpad.
+sudo -u channelpilot env HOME=/var/lib/channelpilot /opt/channelpilot/.venv/bin/python -m channelpilot --config /etc/channelpilot/config.json --pair
+# Open Wireless debugging > Pair using pairing code; replace 40000:
+sudo -u channelpilot env HOME=/var/lib/channelpilot /opt/channelpilot/.venv/bin/python -m channelpilot --config /etc/channelpilot/config.json --adb-pair 40000
 sudo install -m 0644 /opt/channelpilot/scripts/channelpilot.service /etc/systemd/system/channelpilot.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now channelpilot
 journalctl -u channelpilot -f
 ```
 
-Use the service-user pairing command before service startup (or after stopping it). It stores credentials where the service can read them. The service receives `channelpilot-input` as a supplementary group, uses a private state directory and restrictive umask, restarts on crashes, and shuts down on SIGTERM. It has no desktop dependency or keyboard-focus requirement and does not run as root. `PrivateDevices` is intentionally absent because the numpad must remain accessible.
+ADB's local server is shared at port 5037 by default. Pairing and runtime must use the same server/account. If another account owns that server, choose an unused `adb.server_port` (e.g. 5038) for both pairing/runtime rather than killing others' sessions. Keep the same service state directory across reboots.
 
-For foreground numpad testing as your own user, explicitly add that user to `channelpilot-input` and log in again. Do not run the complete application as root to work around device permissions.
+The service runs as `channelpilot`, receives the numpad's group, uses umask 0077, starts without a desktop/login, logs to the journal, restarts on crashes, and responds to SIGTERM with bounded app cleanup. No root runtime or monitor is required. For personal foreground numpad tests, explicitly add your user to `channelpilot-input` and log in again.
 
-## Add another TV application
+## Add an application and develop
 
-1. Create `channelpilot/apps/example.py`, subclass `TVApp`, and implement `async navigate_to_channel(channel)`. Reuse `open()` and `reset_navigation()` or override them for the app's needs. Use `self.nav` for checks and bounded sequences, and mark positions assumed.
-2. Register its type in `apps/registry.py`:
-
-```python
-from .example import ExampleApp
-
-APP_TYPES["example"] = ExampleApp
-```
-
-3. Add `apps.example` configuration with its package, launch strategy, `reset_steps`, calibrated delays, and `calibrated` flag. If the config name differs from its registered type, specify `"type": "example"`.
-4. Add channel records with `"app": "example"` and unused/remapped keys.
-5. Test with the fake remote, then follow hardware calibration before enabling it for the viewer.
-
-The controller only resolves a channel's configured app and calls its interface. It has no MOVE/SVT-specific command sequences.
-
-## Development checks
+Create a `TVApp` subclass in `channelpilot/apps/` and implement its own navigation using `self.nav`; the base class handles ADB launch/stop and startup preparation. Register the type in `APP_TYPES` in `apps/registry.py`, add its settings/package/calibrated steps under `apps`, and register channels pointing to that config name. A different config name can select the implementation with `"type":"example"`. The central controller contains no MOVE/SVT navigation commands.
 
 ```sh
 .venv/bin/python -m pip install -e '.[test]'
@@ -231,25 +267,19 @@ The controller only resolves a channel's configured app and calls its interface.
 .venv/bin/mypy channelpilot
 ```
 
-Tests use a fake transport and the installed SDK interface; they do not contact a television. They cover mapping, app selection, numpad codes, holds/debounce/replugging, latest-request handling, navigation, disconnect epochs, foreground-app checks, timeouts, recovery limits, credential generation/reuse/permissions, and reconnection callbacks. Real-device acceptance is a human-observed procedure in [calibration.md](docs/calibration.md), not an automated playback-verification test. Future hardware tests must use the `hardware` pytest marker.
+Tests use injected fake ADB/remote clients and scripted CLI output, never the real television/ADB server. They cover mapping, input, app switching/force-stop, port changes, service filtering, recovery menus/cooldown, authorization failure, process cleanup, timeouts and retries. Human-observed hardware acceptance is in [calibration.md](docs/calibration.md); future hardware pytest tests must be marked `hardware`. CI checks Python 3.11/3.13 on Linux and 3.13 on macOS.
 
-## Troubleshooting
+## Troubleshooting and sources
 
-| Symptom | Action |
-| --- | --- |
-| `Calibrate ... first` | Configure a launch strategy, verify cold/resumed reset behavior, then mark that app calibrated |
-| Wrong channel, no error | Inspect/tune baseline and offsets with a human watching; successful buffered keys do not verify playback |
-| Unexpected active application | Check package/launch strategy and startup delay; handle consent/account prompts manually during setup |
-| Network unavailable | Check reserved IP, same LAN, Remote Service, and router isolation; inspect connection logs |
-| Manual pairing required | Stop the service; pair using its account/config and restart; move invalid PEM files aside if needed |
-| Numpad unavailable | Check stable path, dedicated udev group, permissions and USB cable; listener retries only that path |
-| Long key selects repeatedly | Check device events; repeat value 2 and duplicate held-key downs are ignored, debounce is configurable |
-| Navigation too slow/times out | Tune delays using the real device and set an appropriate complete-attempt deadline |
-| TV doesn't wake/sleep | Check Chromecast power state and television CEC; the remote protocol cannot guarantee panel behavior |
-| Error after network returns | A new key starts a fresh operation; expired requests are not replayed indefinitely |
+Inspect logs with `journalctl -u channelpilot -n 100` or `-f`; use foreground `--test --debug` for individual keys. Stop/start with `sudo systemctl stop channelpilot` / `start channelpilot`. Update while stopped, reinstall the package in its venv, rerun checks and relevant hardware calibration.
 
-Logs are available through SSH with `journalctl -u channelpilot -n 100` and live with `-f`. Use `--debug` for individual commands during foreground tests. Stop/start with `sudo systemctl stop channelpilot` and `sudo systemctl start channelpilot`. Before updating, stop the service; update the checkout and reinstall its Python package, then rerun checks and hardware calibration for changed app interfaces.
+- **ADB unavailable:** check host, debugging setting, `adb mdns services`, LAN multicast, executable path and configured recovery steps.
+- **ADB authorization rejected:** stop service and run `--adb-pair` as the same account/server; enabling the switch cannot restore revoked authorization.
+- **Old launch settings migration:** move in-app preparation to `startup_steps`/`reset_steps`, remove launcher navigation, clear old fields, recalibrate.
+- **Wrong channel without an error:** check cold-start baseline/positions/timing physically; key transmission doesn't verify playback.
+- **Unexpected app:** verify package/activity, startup delay and account/consent dialogs.
+- **Numpad unavailable:** check by-id path and targeted group permissions; no need to run everything as root.
+- **Repeated recovery fails:** cooldown prevents repeated switch toggles; fix the menu sequence/network or enable debugging manually, then request again.
+- **Timeout:** allow enough time for connection/recovery plus full app navigation; operations never replay indefinitely.
 
-## Sources
-
-Navigation concepts and channel positions were studied from [WayPi-TV](https://github.com/DanielNikolic03/WayPi-TV/tree/2d9fb2f94944504bbb1f3db67141acd22bb3858e). Remote calls follow the public [androidtvremote2 API](https://github.com/tronikos/androidtvremote2/blob/main/src/androidtvremote2/androidtv_remote.py) and [demo](https://github.com/tronikos/androidtvremote2/blob/main/src/demo.py), including its warning about package-name launching. See [reference-notes.md](docs/reference-notes.md) for the exact findings and remaining hardware questions.
+Original navigation findings: [reference-notes.md](docs/reference-notes.md), [WayPi-TV](https://github.com/DanielNikolic03/WayPi-TV/tree/2d9fb2f94944504bbb1f3db67141acd22bb3858e). Remote API: [androidtvremote2](https://github.com/tronikos/androidtvremote2). ADB lifecycle/pairing: [Android ADB documentation](https://developer.android.com/tools/adb). mDNS formats and distinct pairing/connection services: [AOSP ADB Wi-Fi architecture](https://android.googlesource.com/platform/packages/modules/adb/+/HEAD/docs/dev/adb_wifi.md).
