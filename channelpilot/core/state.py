@@ -27,6 +27,7 @@ class ControllerState:
     last_attempted_channel: str | None = None
     presumed_channel: str | None = None
     current_app: str | None = None
+    remote_reported_app: str | None = None
     app_confidence: Confidence = Confidence.UNKNOWN
     navigation_confidence: Confidence = Confidence.UNKNOWN
     status: Status = Status.IDLE

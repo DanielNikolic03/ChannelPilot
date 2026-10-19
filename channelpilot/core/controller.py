@@ -48,6 +48,7 @@ class Controller:
         self.queue: asyncio.Queue[Request] = asyncio.Queue(maxsize=1)
         self._active: Request | None = None
         self._opened_app: TVApp | None = None
+        self._reported_app = remote.current_app
         remote.add_availability_callback(self._availability)
         remote.add_app_callback(self._app_changed)
         remote.add_power_callback(self._power_changed)
@@ -59,6 +60,7 @@ class Controller:
         self.state.navigation_confidence = Confidence.UNKNOWN
         self.state.sequence_completed = False
         self.state.current_app = self.remote.current_app
+        self.state.remote_reported_app = self.remote.current_app
         self.state.app_confidence = (
             Confidence.CONFIRMED if self.remote.current_app else Confidence.UNKNOWN
         )
@@ -76,10 +78,15 @@ class Controller:
             self.state.status = Status.READY
 
     def _app_changed(self, package: str) -> None:
-        if package != self.state.current_app:
+        changed = package != self._reported_app
+        if changed:
             self.invalidate_navigation()
-        self.state.current_app = package
-        self.state.app_confidence = Confidence.CONFIRMED
+        self._reported_app = package
+        self.state.remote_reported_app = package
+        # An unchanged stale report carries no new foreground information.
+        if changed or self.state.current_app is None:
+            self.state.current_app = package
+            self.state.app_confidence = Confidence.CONFIRMED
 
     def _power_changed(self, is_on: bool) -> None:
         self.state.is_on = is_on
@@ -221,7 +228,7 @@ class Controller:
             request.action == "channel"
             and self._opened_app is app
             and self.state.sequence_completed
-            and app.can_reuse_navigation()
+            and await app.can_reuse_navigation()
         )
         await self.remote.wake()
         if request.action == "wake":
@@ -231,7 +238,7 @@ class Controller:
         if request.action == "open":
             app = self.apps[request.value]  # type: ignore[index]
         # Recheck after wake: connection/app/power callbacks may have invalidated continuity.
-        if reuse and app.can_reuse_navigation():
+        if reuse and await app.can_reuse_navigation():
             _LOG.info(
                 "Switching channel in running app: %s (presumed position %s)",
                 app.package,
@@ -255,6 +262,7 @@ class Controller:
             self._opened_app = app
             await app.open(prepare=request.action != "open")
         if request.action == "open":
+            self._record_app_state(app)
             self.state.status = Status.READY
             return
         self.state.status = Status.NAVIGATING
@@ -262,14 +270,18 @@ class Controller:
         _LOG.info("Navigation started: %s", channel.name)
         await app.navigate_to_channel(channel)
         self.state.presumed_channel = channel.id
-        self.state.current_app = self.remote.current_app or app.package
-        self.state.app_confidence = (
-            Confidence.CONFIRMED if self.remote.current_app else Confidence.ASSUMED
-        )
+        self._record_app_state(app)
         self.state.navigation_confidence = Confidence.ASSUMED
         self.state.sequence_completed = True
         self.state.status = Status.READY
         _LOG.info("Navigation sequence completed: %s (playback presumed)", channel.name)
+
+    def _record_app_state(self, app: TVApp) -> None:
+        self.state.current_app = app.nav.current_app or app.package
+        self.state.remote_reported_app = self.remote.current_app
+        self.state.app_confidence = (
+            Confidence.CONFIRMED if app.nav.current_app else Confidence.ASSUMED
+        )
 
     def refresh_adb_state(self) -> None:
         self.state.is_on = self.remote.is_on

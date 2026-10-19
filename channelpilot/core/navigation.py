@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .config import duration
@@ -51,47 +53,97 @@ def validate_steps(steps: list[dict[str, Any]]) -> None:
 
 
 class Navigator:
-    def __init__(self, remote: Remote, timeout: float = 120) -> None:
+    def __init__(
+        self,
+        remote: Remote,
+        timeout: float = 120,
+        *,
+        foreground_probe: Callable[[], Awaitable[str | None]] | None = None,
+    ) -> None:
         self.remote = remote
         self.timeout = timeout
         self.epoch = remote.epoch
         self.invalidated = False
         self.expected_app: str | None = None
         self.checkpoint: str | None = None
+        self.foreground_probe = foreground_probe
+        self._verified_app: str | None = None
+        self._verified_report: str | None = None
+        self._verified_at = float("-inf")
+        self._logged_stale_report: str | None = None
 
-    def check(self) -> None:
+    def _check_connection(self) -> None:
         if self.invalidated:
             raise NavigationError("Navigation state explicitly invalidated")
         if self.expected_app and self.remote.is_on is False:
             raise NavigationError("Device entered standby during navigation")
         if not self.remote.connected or self.remote.epoch != self.epoch:
             raise RemoteUnavailable("Navigation interrupted by a connection change")
-        active = self.remote.current_app
-        if self.expected_app and active and active != self.expected_app:
-            raise NavigationError(f"Unexpected active application: {active}")
+
+    @property
+    def current_app(self) -> str | None:
+        if (
+            self.remote.connected
+            and self.remote.epoch == self.epoch
+            and not self.invalidated
+            and self._verified_app
+            and self._verified_report == self.remote.current_app
+            and time.monotonic() - self._verified_at < 1.0
+        ):
+            return self._verified_app
+        return self.remote.current_app
+
+    async def check(self) -> None:
+        self._check_connection()
+        reported = self.remote.current_app
+        if not self.expected_app or not reported or reported == self.expected_app:
+            return
+        if self.current_app == self.expected_app:
+            return
+        if self.foreground_probe is None:
+            raise NavigationError(f"Unexpected active application: {reported}")
+        actual = await self.foreground_probe()
+        self._check_connection()  # A disconnect or invalidation during ADB must still abort.
+        if actual == self.expected_app:
+            self._verified_app = actual
+            self._verified_report = self.remote.current_app
+            self._verified_at = time.monotonic()
+            if self._logged_stale_report != reported:
+                _LOG.warning(
+                    "Remote reports %s, but ADB confirms %s; using ADB foreground state",
+                    reported,
+                    actual,
+                )
+                self._logged_stale_report = reported
+        elif actual:
+            raise NavigationError(f"Unexpected active application (ADB): {actual}")
+        elif self.remote.current_app != self.expected_app:
+            raise NavigationError(
+                f"Remote reports {reported}; ADB could not determine the foreground app"
+            )
 
     async def press(self, key: str, times: int = 1, delay: float = 0) -> None:
         for _ in range(times):
-            self.check()
+            await self.check()
             await self.remote.press(key)
             await self.wait(delay)
 
     async def wait(self, seconds: float) -> None:
         # Check throughout long startup waits so a detectable failure stops promptly.
         remaining = seconds
-        self.check()
+        await self.check()
         while remaining > 0:
             interval = min(remaining, 0.2)
             await asyncio.sleep(interval)
             remaining -= interval
-            self.check()
+            await self.check()
 
     async def run(self, steps: list[dict[str, Any]]) -> None:
         validate_steps(steps)
         async with asyncio.timeout(self.timeout):
             for step in steps:
-                self.check()
-                if "if_app" in step and self.remote.current_app != step["if_app"]:
+                await self.check()
+                if "if_app" in step and self.current_app != step["if_app"]:
                     continue
                 if "if_power" in step and self.remote.is_on is not step["if_power"]:
                     continue

@@ -334,3 +334,58 @@ async def test_slow_failed_recovery_cools_down_from_end(remote, monkeypatch):
     with pytest.raises(AdbUnavailable, match="cooldown"):
         await adb.ensure_connected()
     assert remote.commands == ["HOME", "SETTINGS"]
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "topResumedActivity=",
+        "mResumedActivity:",
+        "ResumedActivity:",
+        "mCurrentFocus=",
+        "mFocusedApp=",
+    ],
+)
+def test_parse_foreground_metadata_variants(label):
+    from channelpilot.core.adb import parse_foreground_app
+
+    output = (
+        "mLastPausedActivity: ActivityRecord{old u0 old.app/.Main t1}\n"
+        + "  "
+        + label
+        + "ActivityRecord{abc u0 "
+        + PACKAGE
+        + "/.MainActivity t2}\n"
+    )
+    assert parse_foreground_app(output) == PACKAGE
+    assert (
+        parse_foreground_app("mLastPausedActivity: ActivityRecord{old u0 old.app/.Main t1}") is None
+    )
+    assert parse_foreground_app("mCurrentFocus=null\n") is None
+
+
+async def test_foreground_query_uses_activity_then_window_metadata(remote):
+    adb = ScriptedAdb(remote)
+    original = adb._run
+    queries = []
+
+    async def run(*args, **kwargs):
+        if "dumpsys" in args:
+            queries.append(args[-2:])
+            if args[-2:] == ("activity", "activities"):
+                return CommandResult(0, "mResumedActivity=null")
+            return CommandResult(0, f"mCurrentFocus=Window{{abc u0 {PACKAGE}/.MainActivity}}")
+        return await original(*args, **kwargs)
+
+    adb._run = run
+    assert await adb.foreground_app() == PACKAGE
+    assert queries == [("activity", "activities"), ("window", "windows")]
+    assert remote.commands == []
+
+
+async def test_foreground_query_never_starts_settings_recovery(remote):
+    adb = ScriptedAdb(remote, recovery_calibrated=True, recovery_steps=[{"press": "SETTINGS"}])
+    adb.records = ""
+    with pytest.raises(AdbUnavailable, match="recovery disabled"):
+        await adb.foreground_app()
+    assert remote.commands == []

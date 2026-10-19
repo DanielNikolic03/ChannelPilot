@@ -608,3 +608,88 @@ async def test_unconfirmed_toggle_does_not_trigger_automatic_power_retry(
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_move_navigation_works_with_stale_remote_launcher_report(
+    remote, channels, app_configs, caplog
+):
+    launcher = "com.google.android.apps.tv.launcherx"
+    remote.current_app = launcher
+    remote.adb.foreground = app_configs["move"]["package"]
+    app_configs["move"]["startup_steps"] = [{"press": "MENU"}]
+    app_configs["move"]["reset_steps"] = []
+    controller = make_controller(remote, channels, app_configs)
+    task = asyncio.create_task(controller.run())
+    try:
+        controller.submit("channel", "rts1")
+        await asyncio.wait_for(controller.queue.join(), 1)
+        assert remote.commands == ["MENU"]
+        assert controller.state.presumed_channel == "rts1"
+        assert controller.state.current_app == app_configs["move"]["package"]
+        assert controller.state.remote_reported_app == launcher
+        assert "ADB confirms" in caplog.text
+        # Repeated identical stale reports must not invalidate an ADB-confirmed session.
+        remote.set_app(launcher)
+        assert controller.state.presumed_channel == "rts1"
+        remote.commands.clear()
+        # Expire the short cache: the next switch must recheck ADB, not restart MOVE.
+        controller.apps["move"].nav._verified_at = float("-inf")
+        controller.submit("channel", "pink")
+        await asyncio.wait_for(controller.queue.join(), 1)
+        assert remote.commands == ["DPAD_LEFT", "DPAD_DOWN", "DPAD_CENTER", "BACK"]
+        assert len(remote.adb.commands) == 1
+        assert remote.adb.foreground_checks == 2
+        assert controller.state.presumed_channel == "pink"
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("actual", ["other.app", None])
+async def test_foreground_disagreement_is_not_blindly_ignored(remote, actual):
+    remote.current_app = "com.google.android.apps.tv.launcherx"
+    remote.adb.foreground = actual
+    nav = Navigator(remote, foreground_probe=remote.adb.foreground_app)
+    nav.expected_app = "com.mtssi.supernovabih"
+    with pytest.raises(NavigationError):
+        await nav.press("DPAD_CENTER")
+    assert remote.commands == []
+
+
+async def test_adb_foreground_override_expires_and_detects_real_home_transition(remote):
+    launcher = "com.google.android.apps.tv.launcherx"
+    remote.current_app = launcher
+    remote.adb.foreground = "com.mtssi.supernovabih"
+    nav = Navigator(remote, foreground_probe=remote.adb.foreground_app)
+    nav.expected_app = remote.adb.foreground
+    await nav.press("DPAD_LEFT")
+    remote.adb.foreground = launcher
+    nav._verified_at = float("-inf")
+    with pytest.raises(NavigationError, match="Unexpected active application .ADB."):
+        await nav.press("DPAD_CENTER")
+    assert remote.commands == ["DPAD_LEFT"]
+
+
+async def test_disconnect_during_foreground_query_aborts_before_keypress(remote):
+    remote.current_app = "other.app"
+
+    async def probe():
+        remote.set_connection(False)
+        remote.set_connection(True)
+        return "com.mtssi.supernovabih"
+
+    nav = Navigator(remote, foreground_probe=probe)
+    nav.expected_app = "com.mtssi.supernovabih"
+    with pytest.raises(RemoteUnavailable):
+        await nav.press("DPAD_CENTER")
+    assert remote.commands == []
+
+
+async def test_if_app_uses_adb_verified_foreground(remote):
+    remote.current_app = "stale.app"
+    remote.adb.foreground = "com.mtssi.supernovabih"
+    nav = Navigator(remote, foreground_probe=remote.adb.foreground_app)
+    nav.expected_app = remote.adb.foreground
+    await nav.run([{"press": "DPAD_CENTER", "if_app": "com.mtssi.supernovabih"}])
+    assert remote.commands == ["DPAD_CENTER"]
+    assert remote.adb.foreground_checks == 1

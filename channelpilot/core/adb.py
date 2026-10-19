@@ -1,4 +1,4 @@
-"""ADB handles app lifecycle only; all on-screen recovery uses the TV remote."""
+"""ADB handles lifecycle/foreground metadata; the TV remote sends navigation keys."""
 
 from __future__ import annotations
 
@@ -32,6 +32,26 @@ def validate_component(package: str, component: str) -> None:
     match = _COMPONENT.fullmatch(component)
     if not match or match[1] != package:
         raise ValueError("Activity must be a component belonging to the configured package")
+
+
+def parse_foreground_app(output: str) -> str | None:
+    """Read current/resumed metadata, never historical task entries or UI elements."""
+    for label in (
+        "topResumedActivity",
+        "mResumedActivity",
+        "ResumedActivity",
+        "mCurrentFocus",
+        "mFocusedApp",
+    ):
+        for line in output.splitlines():
+            if not re.match(r"\s*" + label + r"\s*[:=]", line):
+                continue
+            match = re.search(
+                r"\b([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)/[\w.$]+", line
+            )
+            if match:
+                return match[1]
+    return None
 
 
 @dataclass(frozen=True)
@@ -82,6 +102,7 @@ class AppControl(Protocol):
     async def ensure_connected(self, *, recover: bool = True) -> None: ...
     async def launch(self, package: str, activity: str | None = None) -> None: ...
     async def force_stop(self, package: str, *, recover: bool = True) -> None: ...
+    async def foreground_app(self) -> str | None: ...
     def invalidate(self) -> None: ...
 
 
@@ -333,6 +354,24 @@ class AdbController:
                 raise AdbUnavailable("ADB discovery/recovery timed out") from exc
             _LOG.info("Force-stopping app through ADB: %s", package)
             await self._shell("am", "force-stop", "--user", "current", package)
+
+    async def foreground_app(self) -> str | None:
+        """Resolve contradictory remote reports without navigating or opening Settings."""
+        async with self._lock:
+            try:
+                await self._ensure_connected(recover=False)
+                for arguments in (("activity", "activities"), ("window", "windows")):
+                    assert self.endpoint is not None
+                    result = await self._run("-s", self.endpoint, "shell", "dumpsys", *arguments)
+                    self._check_auth(result)
+                    if result.returncode:
+                        raise AdbError("ADB foreground-app query failed")
+                    if package := parse_foreground_app(result.stdout):
+                        _LOG.debug("ADB foreground application: %s", package)
+                        return package
+                return None
+            except TimeoutError as exc:
+                raise AdbUnavailable("ADB foreground-app check timed out") from exc
 
     async def pair(self, port: int, read_code: Callable[[], Awaitable[str]]) -> None:
         if type(port) is not int or not 1 <= port <= 65535:

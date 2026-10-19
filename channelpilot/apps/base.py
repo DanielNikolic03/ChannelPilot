@@ -46,9 +46,9 @@ class TVApp(ABC):
         self.confidence = Confidence.UNKNOWN
         self.presumed_position = None
 
-    def can_reuse_navigation(self) -> bool:
+    async def can_reuse_navigation(self) -> bool:
         """Continuity permits an assumed position; it does not verify playback."""
-        return (
+        reusable = (
             self.confidence != Confidence.UNKNOWN
             and self.presumed_position is not None
             and self.remote.connected
@@ -56,8 +56,10 @@ class TVApp(ABC):
             and not self.nav.invalidated
             and self.nav.expected_app == self.package
             and self.remote.is_on is not False
-            and self.remote.current_app in (None, "", self.package)
         )
+        if reusable:
+            await self.nav.check()
+        return reusable
 
     def require_calibration(self) -> None:
         if not self.config.get("calibrated", False):
@@ -81,10 +83,10 @@ class TVApp(ABC):
         _LOG.info("Opening application through ADB: %s", self.package)
         await self.adb.launch(self.package, self.config.get("activity"))
         # ADB recovery may have navigated through Settings; anchor a fresh remote session now.
-        self.nav = Navigator(self.remote, self.timeout)
+        self.nav = Navigator(self.remote, self.timeout, foreground_probe=self.adb.foreground_app)
         await self.nav.wait(self.config.get("startup_delay", 8))
         self.nav.expected_app = self.package
-        self.nav.check()
+        await self.nav.check()
         if prepare:
             await self.nav.run(self.config.get("startup_steps", []))
 

@@ -18,6 +18,8 @@ class FakeAdb:
         self.endpoint = "192.0.2.1:41191"
         self.commands: list[tuple[str, str]] = []
         self.failures = 0
+        self.foreground: str | None = None
+        self.foreground_checks = 0
 
     def invalidate(self) -> None:
         self.connected = False
@@ -36,6 +38,10 @@ class FakeAdb:
     async def force_stop(self, package: str, *, recover: bool = True) -> None:
         await self.ensure_connected(recover=recover)
         self.commands.append(("stop", package))
+
+    async def foreground_app(self) -> str | None:
+        self.foreground_checks += 1
+        return self.foreground
 
 
 class FakeRemote:

@@ -22,7 +22,7 @@ python -m channelpilot --test --debug
 
 Try `adb-connect`, `open move`, `close move`, `open svt`, and `close svt`. `launch com.mtssi.supernovabih` is an alias for opening MOVE by package. These manual commands do not require app calibration and do not run configured startup/reset/channel sequences.
 
-Confirm apps actually open/close. ADB resolves TV launcher activities automatically. If needed, configure a tested full `activity` component belonging to the app. Verify force-stop/reopen behavior: account/session data persists, and an app may restore its previous channel even after its process has been stopped.
+Confirm apps actually open/close. If the remote library incorrectly reports HOME while the app is visible, ChannelPilot resolves the mismatch using read-only ADB foreground metadata before navigation. In `status`, compare `current_app` with `remote_reported_app`; a foreground-package check does not confirm playback. ADB resolves TV launcher activities automatically. If needed, configure a tested full `activity` component belonging to the app. Verify force-stop/reopen behavior: account/session data persists, and an app may restore its previous channel even after its process has been stopped.
 
 Test `key HOME`, DPAD directions, CENTER, BACK, `key VOLUME_UP`, `key VOLUME_DOWN`, `key VOLUME_MUTE`, standby/wake. Wake/Enter only requests power on and never selects a default channel. Test state-checked POWER in both directions, repeated same-state requests, and missing power confirmation (no automatic retoggle). Observe physical TV/CEC behavior; `status.is_on` reports the Chromecast, not the TV panel. If standby app cleanup fails, the power request must still be sent without opening Settings for ADB recovery.
 

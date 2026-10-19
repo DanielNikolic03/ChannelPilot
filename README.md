@@ -2,7 +2,7 @@
 
 ChannelPilot lets a viewer select a TV channel with one key on a USB numpad. A Raspberry Pi reads the numpad and controls MOVE and SVT Play on a Chromecast with Google TV.
 
-The application is Python 3.11+ and asyncio. **Android TV Remote (`androidtvremote2`) sends navigation/power/volume keys. ADB starts and force-stops apps.** It runs in the background without a desktop, terminal focus, screenshots, OCR, or image recognition. The Pi does not run Android applications or Waydroid.
+The application is Python 3.11+ and asyncio. **Android TV Remote (`androidtvremote2`) sends navigation/power/volume keys. ADB starts and force-stops apps and resolves conflicting foreground-app reports.** It runs in the background without a desktop, terminal focus, screenshots, OCR, or image recognition. The Pi does not run Android applications or Waydroid.
 
 The code and fake-device tests run without a television. Real navigation and the Wireless debugging recovery menu must be calibrated on your Chromecast. Sequence completion means no detectable error occurred; playback is presumed, never visually verified.
 
@@ -116,7 +116,7 @@ Reuse requires a completed prior channel sequence, the same controlled app, an u
 
 Switching apps force-stops the previously tracked/configured foreground app first. Manual close and clean program shutdown force-stop the app opened by ChannelPilot. Standby attempts a bounded force-stop without Settings recovery, but an ADB close failure cannot prevent the remote power-off request. Shutdown cleanup is bounded and never opens Settings to recover ADB; an unavailable transport is logged and cleanup stops. The shared ADB server is left running to preserve other clients.
 
-Force-stop does not clear data, sign out accounts, or guarantee the app forgets its last channel. Test its actual cold-start behavior. All in-app steps and playback remain presumed. Remote foreground-app reporting can detect an unexpected package, but cannot verify selected channels.
+Force-stop does not clear data, sign out accounts, or guarantee the app forgets its last channel. Test its actual cold-start behavior. All in-app steps and playback remain presumed. Remote foreground-app reporting can be stale (for example still reporting Google TV HOME while MOVE is visible). On a mismatch, ChannelPilot checks read-only ADB `dumpsys activity activities` metadata, with window-focus metadata as a fallback. It proceeds only if the expected package is identified; a different/undetermined app still stops navigation. This is foreground-package checking, not selected-channel or playback verification. The result is cached for at most one second while the connection/report stays unchanged, then rechecked if the remote still disagrees. Queries never open Settings or send ADB navigation commands. Repeated identical stale remote reports do not erase an ADB-confirmed session, so same-app switching can remain relative.
 
 App settings:
 
@@ -166,7 +166,7 @@ invalidate
 quit
 ```
 
-`open` and its alias `launch` accept registered app names/package IDs and use ADB. They only launch/wait/check the app, without configured startup/reset/channel navigation, so you can calibrate manually. `close` force-stops that registered app. Deep-link URL launching through the remote library has been removed. Individual `key` commands still use the remote library. `status` includes reported Chromecast `is_on`, separate remote/ADB connectivity, ADB endpoint, requested/attempted/presumed channels, sequence completion, confidence and errors. It is last-known status, not a live ADB poll. Manual commands invalidate presumed navigation. A READY status after opening alone is not a verified channel.
+`open` and its alias `launch` accept registered app names/package IDs and use ADB. They only launch/wait/check the app, without configured startup/reset/channel navigation, so you can calibrate manually. `close` force-stops that registered app. Deep-link URL launching through the remote library has been removed. Individual `key` commands still use the remote library. `status` includes reported Chromecast `is_on`, separate remote/ADB connectivity, ADB endpoint, requested/attempted/presumed channels, sequence completion, confidence and errors. `current_app` reflects the foreground information used for navigation; `remote_reported_app` preserves the raw remote-library report for diagnosing stale metadata. It is last-known status, not a live ADB poll. Manual commands invalidate presumed navigation. A READY status after opening alone is not a verified channel.
 
 In either mode, digits select channels; +/− select the next/previous numeric key with wrapping. Enter and `wake` only request power on; they never select a channel or open RTS 1. The retired `default_channel` setting is ignored. Backspace/`standby` attempts to close the opened app and requests power off even if ADB cleanup fails.
 
@@ -215,7 +215,7 @@ The states are IDLE, CONNECTING, READY, LAUNCHING_APP, NAVIGATING, RECOVERING, E
 
 ## Numpad and other configuration
 
-Find the numpad on the Pi with `ls -l /dev/input/by-id/` and use its complete stable `...-event-kbd` path in `input.device`. Unplug it to see which entry disappears. The listener opens only that device, optionally grabs only it, filters repeat/held/bouncing keys, and reopens the same path after a disconnect. Mac `--test` ignores `input.device`.
+Find the numpad on the Pi with `ls -l /dev/input/by-id/` and use its complete stable `...-event-kbd` path in `input.device`. Unplug it to see which entry disappears. The listener opens only that device, optionally grabs only it, filters repeat/held/bouncing keys, and reopens the same path after a disconnect. Mac `--test` ignores `input.device`: macOS does not provide Linux `/dev/input` event paths, so a Mac keyboard's name cannot be entered here. Use the focused terminal and press Enter after each command on macOS. Focus-independent numpad capture is currently implemented only for Linux.
 
 Other settings in [config.example.json](config/config.example.json): `remote.connect_timeout`, `remote.reconnect_delay`, `remote.command_delay`, `remote.wake_delay`, `remote.power_timeout`, `channels_file`, `input.grab`, `input.debounce`, `input.reconnect_delay`, optional `input.key_overrides`, `log_level`, and complete-attempt/retry settings above. Paths are relative to the configuration file; `~` means the service account's home. Restart after changing config; it is not hot reloaded. DEBUG logs remote keys without upstream pairing payloads or ADB pairing codes.
 

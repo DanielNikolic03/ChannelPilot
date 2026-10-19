@@ -9,7 +9,7 @@ from .base import TVApp
 
 class SVTApp(TVApp):
     async def navigate_to_channel(self, channel: Channel) -> None:
-        if not self.can_reuse_navigation():
+        if not await self.can_reuse_navigation():
             await self.reset_navigation()
         if self.presumed_position is None:
             raise NavigationError("SVT baseline unknown")
@@ -22,6 +22,6 @@ class SVTApp(TVApp):
                 self.config.get("channel_delay", 1),
             )
             await self.nav.run(self.config.get("select_suffix", []))
-        self.nav.check()
+        await self.nav.check()
         self.presumed_position = channel.navigation_id
         self.confidence = Confidence.ASSUMED
