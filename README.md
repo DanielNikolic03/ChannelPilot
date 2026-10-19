@@ -60,7 +60,7 @@ List of discovered mdns services
 adb-2A20105GN4CCJH-2CkQNv  _adb-tls-connect._tcp  192.168.0.115:41191
 ```
 
-ChannelPilot selects `_adb-tls-connect._tcp` for the configured host and verifies `get-state` reports `device`. It ignores pairing ports, legacy advertisements, unrelated hosts, and malformed records. `adb.port` optionally supplies an initial connection port; null uses discovery. Cached/configured ports are retried, then discovery finds a changed port before any settings navigation is attempted.
+ChannelPilot selects `_adb-tls-connect._tcp` for the configured host and verifies `get-state` reports `device`. It ignores pairing ports, legacy advertisements, unrelated hosts, and malformed records. `adb.port` optionally supplies an initial connection port; null uses discovery. Cached/configured ports are retried, then discovery finds a changed port before any settings navigation is attempted. If the installed ADB cannot report mDNS services but Avahi can, install `avahi-daemon`/`avahi-utils` and set `"mdns_backend": "avahi"`; ChannelPilot then uses `avahi-browse -rtp _adb-tls-connect._tcp` for discovery while continuing to use ADB for connection and commands.
 
 ## Automatic Wireless debugging recovery
 
@@ -71,6 +71,8 @@ Enter **your own device-specific menu steps** in `config/config.json`:
 ```json
 "adb": {
   "executable": "adb",
+  "mdns_backend": "adb",
+  "avahi_executable": "avahi-browse",
   "port": null,
   "server_port": 5037,
   "command_timeout": 10,

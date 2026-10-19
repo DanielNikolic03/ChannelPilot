@@ -118,6 +118,8 @@
   },
   "adb": {
     "executable": "adb",
+    "mdns_backend": "adb",
+    "avahi_executable": "avahi-browse",
     "port": null,
     "server_port": 5037,
     "command_timeout": 10,

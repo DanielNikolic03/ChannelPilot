@@ -95,6 +95,26 @@ def parse_mdns(output: str) -> list[Service]:
     return services
 
 
+def parse_avahi(output: str) -> list[Service]:
+    """Parse avahi-browse's parsable resolved output."""
+    services = []
+    for line in output.splitlines():
+        fields = line.split(";")
+        if len(fields) < 9 or fields[0] not in {"=", "+"}:
+            continue
+        if fields[4].rstrip(".") != "_adb-tls-connect._tcp":
+            continue
+        try:
+            host = str(ipaddress.ip_address(fields[7]))
+            port = int(fields[8])
+            if not 1 <= port <= 65535:
+                continue
+        except (ValueError, IndexError):
+            continue
+        services.append(Service(fields[3], host, port))
+    return services
+
+
 class AppControl(Protocol):
     connected: bool
     endpoint: str | None
@@ -121,11 +141,23 @@ class AdbController:
 
     async def _run(self, *arguments: str, input_text: str | None = None) -> CommandResult:
         """No local shell; package/component arguments are also validated for adb shell."""
+        return await self._run_executable(self.config.executable, *arguments, input_text=input_text)
+
+    async def _run_external(
+        self, executable: str, *arguments: str, input_text: str | None = None
+    ) -> CommandResult:
+        return await self._run_executable(executable, *arguments, input_text=input_text)
+
+    async def _run_executable(
+        self, executable: str, *arguments: str, input_text: str | None = None
+    ) -> CommandResult:
         try:
             process = await asyncio.create_subprocess_exec(
-                self.config.executable,
-                "-P",
-                str(self.config.server_port),
+                executable,
+                *(() if executable == self.config.avahi_executable else (
+                    "-P",
+                    str(self.config.server_port),
+                )),
                 *arguments,
                 stdin=asyncio.subprocess.PIPE
                 if input_text is not None
@@ -201,14 +233,22 @@ class AdbController:
 
     async def _discover(self) -> bool:
         addresses = await self._addresses()
-        _LOG.info("Discovering Chromecast ADB connection port via adb mdns services")
-        result = await self._run("mdns", "services")
+        if self.config.mdns_backend == "avahi":
+            _LOG.info("Discovering Chromecast ADB connection port via avahi-browse")
+            result = await self._run_external(
+                self.config.avahi_executable,
+                "-rtp",
+                "_adb-tls-connect._tcp",
+            )
+            services = parse_avahi(result.stdout)
+        else:
+            _LOG.info("Discovering Chromecast ADB connection port via adb mdns services")
+            result = await self._run("mdns", "services")
+            services = parse_mdns(result.stdout)
         if result.returncode:
             _LOG.warning("ADB mDNS discovery unavailable; check Platform Tools and LAN mDNS")
             return False
-        services = sorted(
-            parse_mdns(result.stdout), key=lambda service: service.endpoint == self.endpoint
-        )
+        services = sorted(services, key=lambda service: service.endpoint == self.endpoint)
         for service in services:
             # Never choose the first unrelated TV/phone or accidentally connect to a pairing port.
             if str(ipaddress.ip_address(service.host)) in addresses:

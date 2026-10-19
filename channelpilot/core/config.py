@@ -29,6 +29,8 @@ class RemoteConfig:
 @dataclass(frozen=True)
 class AdbConfig:
     executable: str = "adb"
+    mdns_backend: str = "adb"
+    avahi_executable: str = "avahi-browse"
     port: int | None = None
     server_port: int = 5037
     command_timeout: float = 10.0
@@ -47,6 +49,12 @@ class AdbConfig:
         executable = data.get("executable", "adb")
         if not isinstance(executable, str) or not executable.strip():
             raise ValueError("adb.executable must be an executable path/name")
+        mdns_backend = data.get("mdns_backend", "adb")
+        if mdns_backend not in {"adb", "avahi"}:
+            raise ValueError("adb.mdns_backend must be 'adb' or 'avahi'")
+        avahi_executable = data.get("avahi_executable", "avahi-browse")
+        if not isinstance(avahi_executable, str) or not avahi_executable.strip():
+            raise ValueError("adb.avahi_executable must be an executable path/name")
         port = data.get("port")
         server = data.get("server_port", 5037)
         for value in (port, server):
@@ -63,6 +71,8 @@ class AdbConfig:
             raise ValueError("Calibrated ADB recovery needs actual remote-key steps")
         return cls(
             executable=executable,
+            mdns_backend=mdns_backend,
+            avahi_executable=avahi_executable,
             port=port,
             server_port=server,
             recovery_calibrated=calibrated,

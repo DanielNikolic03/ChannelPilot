@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from channelpilot.core.adb import AdbController, CommandResult, parse_mdns
+from channelpilot.core.adb import AdbController, CommandResult, parse_avahi, parse_mdns
 from channelpilot.core.config import AdbConfig
 from channelpilot.core.errors import (
     AdbError,
@@ -87,6 +87,19 @@ def test_parse_actual_mdns_sample_and_exclude_pairing():
     assert services[0].endpoint == HOST + ":41191"
 
 
+def test_parse_avahi_sample_and_exclude_other_services():
+    output = (
+        "=;eth0;IPv4;adb-device;_adb-tls-connect._tcp;local;Android-2.local;"
+        f"{HOST};37179;\"v=ADB_SECURE_SERVICE_VERSION\"\n"
+        "=;eth0;IPv4;pairing;_adb-tls-pairing._tcp;local;Android-2.local;"
+        f"{HOST};40000;\n"
+    )
+    services = parse_avahi(output)
+    assert len(services) == 1
+    assert services[0].name == "adb-device"
+    assert services[0].endpoint == HOST + ":37179"
+
+
 async def test_only_connects_to_configured_chromecast(remote):
     adb = ScriptedAdb(remote)
     adb.records = (
@@ -99,6 +112,24 @@ async def test_only_connects_to_configured_chromecast(remote):
     assert adb.endpoint == HOST + ":41191"
     assert [call for call in adb.calls if call[0] == "connect"] == [("connect", HOST + ":41191")]
     assert remote.commands == []
+
+
+async def test_avahi_discovery_connects_to_configured_chromecast(remote):
+    adb = ScriptedAdb(remote, mdns_backend="avahi")
+
+    async def run(*args, input_text=None):
+        adb.calls.append(args)
+        if args == ("avahi-browse", "-rtp", "_adb-tls-connect._tcp"):
+            return CommandResult(
+                0,
+                "=;eth0;IPv4;adb-device;_adb-tls-connect._tcp;local;Android-2.local;"
+                f"{HOST};41191;\"v=ADB_SECURE_SERVICE_VERSION\"\n",
+            )
+        return await ScriptedAdb._run(adb, *args, input_text=input_text)
+
+    adb._run_external = run
+    await adb.ensure_connected()
+    assert adb.endpoint == HOST + ":41191"
 
 
 @pytest.mark.parametrize("time_out", [False, True])
